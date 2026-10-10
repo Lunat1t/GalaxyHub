@@ -31,6 +31,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "server-only": "^0.0.1",
+    "tsx": "^4.20.5",
     "undici": "^8.11.2"
   },
   "devDependencies": {
@@ -39,7 +40,6 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "concurrently": "^10.0.6",
-    "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   },
   "engines": {
