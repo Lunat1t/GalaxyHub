@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: galaxy-hub
+    runtime: node
+    plan: free
+    numInstances: 1
+    buildCommand: npm ci && npm run build
+    startCommand: npm run serve
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.19.0
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: '1'
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        sync: false
