@@ -15,3 +15,13 @@ export function canStandAt(x: number, y: number): boolean {
   if (x < 32 + radius || x > CAFE_WIDTH - 32 - radius || y < 64 + radius || y > CAFE_HEIGHT - 32 - radius) return false;
   return !OBSTACLES.some(rect => x > rect.x - radius && x < rect.x + rect.width + radius && y > rect.y - radius && y < rect.y + rect.height + radius);
 }
+
+// Use identical movement and collision rules for prediction and the server.
+export function advancePlayer(position: { x: number; y: number }, input: { x: number; y: number }, delta: number) {
+  const length = Math.max(1, Math.hypot(input.x, input.y));
+  const step = WALK_SPEED * Math.min(Math.max(delta, 0), 50) / 1000;
+  let { x, y } = position;
+  if (canStandAt(x + input.x / length * step, y)) x += input.x / length * step;
+  if (canStandAt(x, y + input.y / length * step)) y += input.y / length * step;
+  return { x, y };
+}

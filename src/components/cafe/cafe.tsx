@@ -13,9 +13,9 @@ export default function Cafe() {
     if (!name.trim()) return;
     setName(name.trim()); setJoined(true);
   }
-  return <main className="cafe-page">
-    <nav><a href="/">Вход и профиль</a></nav>
-    <h1>Café</h1><p>Небольшое пространство для встреч. Сейчас доступен гостевой вход.</p>
+  return <main className={joined ? 'cafe-page cafe-page-playing' : 'cafe-page'}>
+    {!joined && <><nav><a href="/">Вход и профиль</a></nav>
+    <h1>Café</h1><p>Небольшое пространство для встреч. Сейчас доступен гостевой вход.</p></>}
     {!joined ? <section><h2>Войти в Café</h2><form onSubmit={enter}>
       <label>Имя гостя<input required maxLength={24} autoComplete="nickname" value={name} onChange={e => setName(e.target.value)} /></label>
       <fieldset><legend>Цвет аватара</legend><div className="avatars">{PLAYER_COLORS.map((value, index) => <label key={value}>
@@ -23,8 +23,7 @@ export default function Cafe() {
       </label>)}</div></fieldset>
       <button type="submit">Войти в Café</button>
     </form></section> : <>
-      <CafeWorld name={name} color={color} />
-      <p><button onClick={() => setJoined(false)}>Выйти из Café</button></p>
+      <CafeWorld name={name} color={color} onLeave={() => setJoined(false)} />
     </>}
   </main>;
 }

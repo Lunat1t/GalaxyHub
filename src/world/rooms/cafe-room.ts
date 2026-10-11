@@ -1,6 +1,6 @@
 import { Room, type Client } from '@colyseus/core';
 import { Schema, MapSchema, defineTypes } from '@colyseus/schema';
-import { canStandAt, PLAYER_COLORS, WALK_SPEED } from '../../shared/cafe-map';
+import { advancePlayer, PLAYER_COLORS } from '../../shared/cafe-map';
 
 // Schema fields use accessors; tsconfig disables define-style class fields.
 class CafePlayer extends Schema {
@@ -22,31 +22,31 @@ export class CafeRoom extends Room<CafeState> {
 
   onCreate() {
     this.setState(new CafeState());
-    this.setPatchRate(50);
+    this.setPatchRate(33);
     this.onMessage('move', (client, payload: unknown) => {
       if (!payload || typeof payload !== 'object') return;
       const value = payload as Record<string, unknown>;
       if (typeof value.x !== 'number' || typeof value.y !== 'number' || !Number.isFinite(value.x) || !Number.isFinite(value.y)) return;
       const now = Date.now();
-      if (now - (this.lastMessage.get(client.sessionId) ?? 0) < 30) return;
-      this.lastMessage.set(client.sessionId, now);
       const length = Math.hypot(value.x, value.y);
-      this.inputs.set(client.sessionId, { x: value.x / Math.max(1, length), y: value.y / Math.max(1, length), receivedAt: now });
+      const x = value.x / Math.max(1, length), y = value.y / Math.max(1, length);
+      const previous = this.inputs.get(client.sessionId);
+      // Never discard a direction change or release immediately after a press.
+      if (previous?.x === x && previous?.y === y && now - (this.lastMessage.get(client.sessionId) ?? 0) < 30) return;
+      this.lastMessage.set(client.sessionId, now);
+      this.inputs.set(client.sessionId, { x, y, receivedAt: now });
     });
     this.setSimulationInterval(delta => {
-      const step = WALK_SPEED * Math.min(delta, 100) / 1000;
       const now = Date.now();
       this.state.players.forEach((player, id) => {
         const input = this.inputs.get(id);
         const active = input && now - input.receivedAt < 250;
-        const dx = active ? input.x * step : 0;
-        const dy = active ? input.y * step : 0;
         const oldX = player.x, oldY = player.y;
-        if (canStandAt(player.x + dx, player.y)) player.x += dx;
-        if (canStandAt(player.x, player.y + dy)) player.y += dy;
+        const next = advancePlayer(player, active ? input : { x: 0, y: 0 }, delta);
+        player.x = next.x; player.y = next.y;
         player.moving = Math.hypot(player.x - oldX, player.y - oldY) > 0.01;
       });
-    }, 50);
+    }, 1000 / 60);
   }
 
   onJoin(client: Client, options: unknown) {

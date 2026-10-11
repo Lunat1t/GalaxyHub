@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as PhaserTypes from 'phaser';
 import type { Room } from 'colyseus.js';
-import { CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS } from '@/shared/cafe-map';
+import { advancePlayer, canStandAt, CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS } from '@/shared/cafe-map';
 
 type Player = { name: string; color: number; x: number; y: number; moving: boolean };
 type Snapshot = { players: Map<string, Player> };
@@ -10,7 +10,8 @@ type Member = { id: string; name: string };
 type Visual = { container: PhaserTypes.GameObjects.Container; sprite: PhaserTypes.GameObjects.Image; label: PhaserTypes.GameObjects.Text; target: Player };
 const DIRECTIONS = [{ label: 'Вверх', x: 0, y: -1, glyph: '↑' }, { label: 'Влево', x: -1, y: 0, glyph: '←' }, { label: 'Вниз', x: 0, y: 1, glyph: '↓' }, { label: 'Вправо', x: 1, y: 0, glyph: '→' }];
 
-export default function CafeWorld({ name, color }: { name: string; color: number }) {
+export default function CafeWorld({ name, color, onLeave }: { name: string; color: number; onLeave: () => void }) {
+  const screen = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const touch = useRef({ x: 0, y: 0 });
   const [status, setStatus] = useState('Подключаемся…');
@@ -19,6 +20,15 @@ export default function CafeWorld({ name, color }: { name: string; color: number
   const [area, setArea] = useState('Общий зал');
   const [attempt, setAttempt] = useState(0);
   const [roomId, setRoomId] = useState('');
+  const [fullscreenError, setFullscreenError] = useState('');
+
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (screen.current?.requestFullscreen) await screen.current.requestFullscreen();
+      else setFullscreenError('Этот браузер не поддерживает скрытие панелей. Карта уже занимает всё окно.');
+    } catch { setFullscreenError('Браузер не разрешил полноэкранный режим. Карта занимает всё окно.'); }
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -26,10 +36,12 @@ export default function CafeWorld({ name, color }: { name: string; color: number
     let room: Room<Snapshot> | undefined;
     let lastRoster = '';
     let pointerTarget: { x: number; y: number } | null = null;
+    let resetInput = () => {};
     setStatus('Подключаемся…'); setConnected(false); setMembers([]); setArea('Общий зал');
     touch.current = { x: 0, y: 0 };
     const stop = () => {
       touch.current = { x: 0, y: 0 }; pointerTarget = null;
+      resetInput();
       if (room?.connection.isOpen) room.send('move', { x: 0, y: 0 });
     };
     const visibility = () => { if (document.hidden) stop(); };
@@ -56,6 +68,8 @@ export default function CafeWorld({ name, color }: { name: string; color: number
           private visuals = new Map<string, Visual>();
           private lastSent = 0;
           private previousInput = '';
+          private localMoving = false;
+          private idleSince = 0;
           private keys!: Record<string, PhaserTypes.Input.Keyboard.Key>;
           constructor() { super('Cafe'); }
           create() {
@@ -104,6 +118,10 @@ export default function CafeWorld({ name, color }: { name: string; color: number
               avatar.generateTexture(`person-${index}`, 18, 24); avatar.destroy();
             });
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D') as Record<string, PhaserTypes.Input.Keyboard.Key>;
+            resetInput = () => {
+              this.input.keyboard?.resetKeys(); this.previousInput = '0.00,0.00';
+              this.localMoving = false; this.idleSince = performance.now();
+            };
             this.input.on('pointerdown', (pointer: PhaserTypes.Input.Pointer) => { pointerTarget = { x: pointer.worldX, y: pointer.worldY }; });
             joined.onStateChange(state => { if (!disposed) this.applySnapshot(state); });
             this.applySnapshot(joined.state);
@@ -138,34 +156,60 @@ export default function CafeWorld({ name, color }: { name: string; color: number
           }
           update(time: number, delta: number) {
             if (!this.keys) return;
-            this.visuals.forEach(visual => {
+            this.visuals.forEach((visual, id) => {
+              if (id === joined.sessionId) return;
               const blend = Math.min(1, delta / 70);
               visual.container.x += (visual.target.x - visual.container.x) * blend;
               visual.container.y += (visual.target.y - visual.container.y) * blend;
               visual.container.setDepth(visual.container.y);
               visual.sprite.y = visual.target.moving ? Math.round(Math.sin(time / 90)) * 2 : 0;
             });
-            if (!joined.connection.isOpen || document.hidden || !document.hasFocus()) return;
+            const me = this.visuals.get(joined.sessionId);
+            if (!joined.connection.isOpen || document.hidden || !document.hasFocus()) {
+              if (me) me.sprite.y = 0;
+              return;
+            }
             let x = Number(this.keys.RIGHT.isDown || this.keys.D.isDown) - Number(this.keys.LEFT.isDown || this.keys.A.isDown);
             let y = Number(this.keys.DOWN.isDown || this.keys.S.isDown) - Number(this.keys.UP.isDown || this.keys.W.isDown);
             if (x || y || touch.current.x || touch.current.y) { pointerTarget = null; x = x || touch.current.x; y = y || touch.current.y; }
             else if (pointerTarget) {
-              const me = joined.state.players?.get(joined.sessionId);
               if (me) {
-                const dx = pointerTarget.x - me.x, dy = pointerTarget.y - me.y;
+                const dx = pointerTarget.x - me.container.x, dy = pointerTarget.y - me.container.y;
                 const distance = Math.hypot(dx, dy);
                 if (distance < 8) pointerTarget = null;
                 else { x = dx / distance; y = dy / distance; }
               }
             }
+            const moving = Boolean(x || y);
+            if (moving) this.idleSince = 0;
+            else if (this.localMoving || !this.idleSince) this.idleSince = performance.now();
+            this.localMoving = moving;
+            if (me) {
+              // Predict locally on the first frame; the server remains authoritative.
+              const next = advancePlayer(me.container, { x, y }, delta);
+              me.container.setPosition(next.x, next.y);
+              const error = Math.hypot(me.target.x - next.x, me.target.y - next.y);
+              const settled = !moving && !me.target.moving && performance.now() - this.idleSince > 250;
+              if (error > 32 || settled) {
+                const blend = 1 - Math.exp(-Math.min(delta, 50) / 100);
+                const corrected = { x: next.x + (me.target.x - next.x) * blend, y: next.y + (me.target.y - next.y) * blend };
+                if (canStandAt(corrected.x, corrected.y)) me.container.setPosition(corrected.x, corrected.y);
+                else if (error > 64) me.container.setPosition(me.target.x, me.target.y);
+              }
+              me.container.setDepth(me.container.y);
+              me.sprite.y = moving ? Math.round(Math.sin(time / 90)) * 2 : 0;
+            }
             const key = `${x.toFixed(2)},${y.toFixed(2)}`;
-            if (time - this.lastSent >= 80 && (x || y || key !== this.previousInput)) {
+            if (key !== this.previousInput || (moving && time - this.lastSent >= 50)) {
               joined.send('move', { x, y }); this.lastSent = time; this.previousInput = key;
             }
           }
         }
         if (!host.current || disposed) { await joined.leave(); return; }
         game = new Phaser.Game({ type: Phaser.CANVAS, width: CAFE_WIDTH, height: CAFE_HEIGHT, parent: host.current, pixelArt: true, backgroundColor: '#775d49', scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }, scene: CafeScene, audio: { noAudio: true } });
+        const resize = new ResizeObserver(() => game?.scale.refresh());
+        resize.observe(host.current);
+        game.events.once('destroy', () => resize.disconnect());
       } catch {
         game?.destroy(true);
         if (room?.connection.isOpen) await room.leave().catch(() => {});
@@ -182,17 +226,24 @@ export default function CafeWorld({ name, color }: { name: string; color: number
     };
   }, [name, color, attempt]);
 
-  return <>
-    <p role="status">{status}</p>
-    {!connected && <button onClick={() => setAttempt(value => value + 1)}>Переподключиться</button>}
-    <p>Стрелки или WASD — движение. Можно нажать на свободное место на карте. На телефоне удерживайте кнопки ниже.</p>
+  return <div ref={screen} className="cafe-screen">
     <div ref={host} className="cafe-canvas" role="img" aria-label="Карта Café с аватарами участников" />
+    <header className="cafe-hud">
+      <div><strong>Café</strong><span role="status">{status}</span>{connected && <span>В Café: {members.length} · {area}</span>}</div>
+      <div className="cafe-actions"><button onClick={toggleFullscreen}>Полный экран</button><button onClick={onLeave}>Выйти из Café</button></div>
+    </header>
+    {!connected && <div className="cafe-reconnect"><button onClick={() => setAttempt(value => value + 1)}>Переподключиться</button></div>}
+    {fullscreenError && <p className="cafe-fullscreen-error" role="status">{fullscreenError}</p>}
+    <details className="cafe-info"><summary>Участники и управление</summary>
+      <p>Стрелки или WASD — движение. Нажмите на свободное место на карте или удерживайте кнопки.</p>
+      <ul aria-label="Участники Café">{members.map(member => <li key={member.id}>{member.name}</li>)}</ul>
+      <small>Комната: {roomId}</small>
+    </details>
     <div className="cafe-controls" aria-label="Управление аватаром">{DIRECTIONS.map(direction => <button key={direction.label} aria-label={direction.label} disabled={!connected}
       onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); touch.current = { x: direction.x, y: direction.y }; }}
       onPointerUp={() => { touch.current = { x: 0, y: 0 }; }} onPointerCancel={() => { touch.current = { x: 0, y: 0 }; }}
       onLostPointerCapture={() => { touch.current = { x: 0, y: 0 }; }}
       onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') touch.current = { x: direction.x, y: direction.y }; }}
       onKeyUp={() => { touch.current = { x: 0, y: 0 }; }} onBlur={() => { touch.current = { x: 0, y: 0 }; }}>{direction.glyph}</button>)}</div>
-    {connected && <section><h2>В Café: {members.length}</h2><p>Вы рядом: {area}</p><ul aria-label="Участники Café">{members.map(member => <li key={member.id}>{member.name}</li>)}</ul><small>Комната: {roomId}</small></section>}
-  </>;
+  </div>;
 }
