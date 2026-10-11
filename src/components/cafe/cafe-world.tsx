@@ -146,9 +146,15 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
           create() {
             const fitCamera = () => {
               const { width, height } = this.scale;
-              // Keep avatars readable in portrait; the camera follows across the map.
-              const zoom = Math.max(.85, Math.min(1.5, width / CAFE_WIDTH, height / CAFE_HEIGHT));
-              this.cameras.main.setZoom(zoom).setBounds(0, 0, CAFE_WIDTH, CAFE_HEIGHT);
+              // Fit the room on large screens and keep avatars readable in portrait.
+              const zoom = Math.max(.85, Math.min(width / CAFE_WIDTH, height / CAFE_HEIGHT));
+              const boundsWidth = Math.max(CAFE_WIDTH, width / zoom);
+              const boundsHeight = Math.max(CAFE_HEIGHT, height / zoom);
+              // Expand undersized bounds symmetrically instead of anchoring the map.
+              this.cameras.main.setZoom(zoom).setBounds(
+                (CAFE_WIDTH - boundsWidth) / 2, (CAFE_HEIGHT - boundsHeight) / 2,
+                boundsWidth, boundsHeight,
+              );
             };
             fitCamera(); this.scale.on('resize', fitCamera);
             this.events.once('shutdown', () => this.scale.off('resize', fitCamera));
