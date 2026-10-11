@@ -1,6 +1,6 @@
 {
   "name": "galaxy-hub",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "concurrently --kill-others --names web,world \"npm:dev:web\" \"npm:dev:world\"",
@@ -15,7 +15,9 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "check:services": "tsx scripts/check-services.ts",
     "check:cafe": "tsx scripts/check-cafe.ts",
-    "serve": "tsx src/server.ts"
+    "serve": "tsx src/server.ts",
+    "check:v1": "tsx scripts/check-v1.ts",
+    "check:browser": "node scripts/check-browser.cjs"
   },
   "dependencies": {
     "@colyseus/core": "^0.16.5",
@@ -40,9 +42,13 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "concurrently": "^10.0.6",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "playwright": "1.64.0"
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "overrides": {
+    "postcss": "8.5.29"
   }
 }

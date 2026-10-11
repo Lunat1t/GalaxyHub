@@ -10,6 +10,7 @@ import { getSupabaseBrowser } from '@/lib/supabase/browser';
 import { loadCafeRuntime } from './load-cafe';
 import SafetyActions from '../safety-actions';
 import type { CafeSafetyState } from '@/shared/safety';
+import { PointerDirections } from '@/shared/cafe-controls';
 
 type Player = { name: string; color: number; x: number; y: number; moving: boolean; avatar: string; account: boolean; inputSeq: number };
 type Snapshot = { players: Map<string, Player> };
@@ -21,6 +22,8 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
   const screen = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const touch = useRef({ x: 0, y: 0 });
+  const pointers = useRef(new PointerDirections());
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const typing = useRef(false);
   const pauseInput = useRef(() => {});
   const [chatRoom, setChatRoom] = useState<Room<Snapshot> | null>(null);
@@ -32,6 +35,19 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
   const [roomId, setRoomId] = useState('');
   const [fullscreenError, setFullscreenError] = useState('');
   const [safety, setSafety] = useState<CafeSafetyState>({ blocked: [] });
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const resize = () => {
+      screen.current?.style.setProperty('--cafe-height', `${viewport?.height ?? window.innerHeight}px`);
+      screen.current?.style.setProperty('--cafe-top', `${viewport?.offsetTop ?? 0}px`);
+      setKeyboardOpen(Boolean(viewport && window.innerHeight - viewport.height > 150));
+    };
+    resize(); viewport?.addEventListener('resize', resize); viewport?.addEventListener('scroll', resize);
+    window.addEventListener('resize', resize);
+    return () => { viewport?.removeEventListener('resize', resize); viewport?.removeEventListener('scroll', resize); window.removeEventListener('resize', resize); };
+  }, []);
+  function releasePointer(id: number) { touch.current = pointers.current.release(id); }
 
   function onTyping(value: boolean) {
     typing.current = value;
@@ -58,9 +74,9 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
     setStatus('Подключаемся…'); setConnected(false); setMembers([]); setArea('Общий зал'); setChatRoom(null);
     typing.current = false;
     setSafety({ blocked: [] });
-    touch.current = { x: 0, y: 0 };
+    touch.current = pointers.current.clear();
     const stop = () => {
-      touch.current = { x: 0, y: 0 };
+      touch.current = pointers.current.clear();
       resetInput();
     };
     const visibility = () => { if (document.hidden) stop(); };
@@ -128,6 +144,14 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
           private keys!: Record<string, PhaserTypes.Input.Keyboard.Key>;
           constructor() { super('Cafe'); }
           create() {
+            const fitCamera = () => {
+              const { width, height } = this.scale;
+              // Keep avatars readable in portrait; the camera follows across the map.
+              const zoom = Math.max(.85, Math.min(1.5, width / CAFE_WIDTH, height / CAFE_HEIGHT));
+              this.cameras.main.setZoom(zoom).setBounds(0, 0, CAFE_WIDTH, CAFE_HEIGHT);
+            };
+            fitCamera(); this.scale.on('resize', fitCamera);
+            this.events.once('shutdown', () => this.scale.off('resize', fitCamera));
             const g = this.add.graphics();
             g.fillStyle(0x775d49).fillRect(0, 0, CAFE_WIDTH, CAFE_HEIGHT);
             for (let y = 64; y < CAFE_HEIGHT - 32; y += 32) {
@@ -200,6 +224,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
                 const label = this.add.text(0, -58, player.name + (id === joined.sessionId ? ' (вы)' : ''), { fontFamily: 'Arial', fontSize: '13px', color: '#ffffff', backgroundColor: '#493c31', padding: { x: 4, y: 2 } }).setOrigin(.5);
                 const container = this.add.container(player.x, player.y, [shadow, ring, sprite, label]);
                 visual = { container, sprite, label, target: player }; this.visuals.set(id, visual);
+                if (id === joined.sessionId) this.cameras.main.startFollow(container, true, 1, 1);
               }
               // Schema fields are prototype accessors, so explicitly copy coordinates.
               visual.target = { name: player.name, color: player.color, x: player.x, y: player.y, moving: player.moving, avatar: player.avatar, account: player.account, inputSeq: player.inputSeq };
@@ -271,7 +296,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
           }
         }
         if (!host.current || disposed) { await joined.leave(); return; }
-        game = new Phaser.Game({ type: Phaser.CANVAS, width: CAFE_WIDTH, height: CAFE_HEIGHT, parent: host.current, pixelArt: true, backgroundColor: '#775d49', scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }, scene: CafeScene, audio: { noAudio: true } });
+        game = new Phaser.Game({ type: Phaser.CANVAS, width: host.current.clientWidth, height: host.current.clientHeight, parent: host.current, pixelArt: true, backgroundColor: '#775d49', scale: { mode: Phaser.Scale.RESIZE }, scene: CafeScene, audio: { noAudio: true } });
         const resize = new ResizeObserver(() => game?.scale.refresh());
         resize.observe(host.current);
         game.events.once('destroy', () => resize.disconnect());
@@ -290,13 +315,13 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
       window.removeEventListener('storage', profileChanged);
       window.removeEventListener('galaxy-safety-changed', refreshSafety); window.removeEventListener('storage', safetyStorage);
       window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', visibility);
-      touch.current = { x: 0, y: 0 };
+      touch.current = pointers.current.clear();
       game?.destroy(true);
       if (room?.connection.isOpen) void room.leave().catch(() => {});
     };
   }, [name, color, useAccount, attempt]);
 
-  return <div ref={screen} className="cafe-screen">
+  return <div ref={screen} className={`cafe-screen${keyboardOpen ? ' cafe-keyboard' : ''}`}>
     <div ref={host} className="cafe-canvas" role="img" aria-label="Карта Café с аватарами участников" />
     <header className="cafe-hud">
       <div><strong>Café</strong><span role="status">{status}</span>{connected && <span>В Café: {members.length} · {area}</span>}</div>
@@ -312,10 +337,10 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
       <small>Комната: {roomId}</small>
     </details>
     <div className="cafe-controls" aria-label="Управление аватаром">{DIRECTIONS.map(direction => <button key={direction.label} aria-label={direction.label} disabled={!connected}
-      onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); touch.current = { x: direction.x, y: direction.y }; }}
-      onPointerUp={() => { touch.current = { x: 0, y: 0 }; }} onPointerCancel={() => { touch.current = { x: 0, y: 0 }; }}
-      onLostPointerCapture={() => { touch.current = { x: 0, y: 0 }; }}
+      onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); touch.current = pointers.current.press(event.pointerId, direction); }}
+      onPointerUp={event => releasePointer(event.pointerId)} onPointerCancel={event => releasePointer(event.pointerId)}
+      onLostPointerCapture={event => releasePointer(event.pointerId)}
       onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') touch.current = { x: direction.x, y: direction.y }; }}
-      onKeyUp={() => { touch.current = { x: 0, y: 0 }; }} onBlur={() => { touch.current = { x: 0, y: 0 }; }}>{direction.glyph}</button>)}</div>
+      onKeyUp={() => { touch.current = pointers.current.value(); }} onBlur={() => { touch.current = pointers.current.value(); }}>{direction.glyph}</button>)}</div>
   </div>;
 }

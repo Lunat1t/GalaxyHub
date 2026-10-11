@@ -33,6 +33,7 @@ export default function ProjectRoomPage({ id }: { id: string }) {
   const follow = useRef(true);
   const generation = useRef(0);
   const pendingLoad = useRef<number | null>(null);
+  const queuedLoad = useRef<boolean | null>(null);
   const actionAbort = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
   const hasDetail = useRef(false);
@@ -44,35 +45,37 @@ export default function ProjectRoomPage({ id }: { id: string }) {
     setInviteToken(token && /^[A-Za-z0-9_-]{32}$/.test(token) ? token : '');
   }, [id]);
 
-  const load = useCallback(async (initial = false) => {
-    if (!userId || pendingLoad.current === generation.current) return;
+  const load = useCallback(async (initial = false): Promise<void> => {
+    if (!userId) return;
+    if (pendingLoad.current === generation.current) { queuedLoad.current = initial || Boolean(queuedLoad.current); return; }
     const current = generation.current;
     pendingLoad.current = current;
     try {
       const result = await roomRequest<ProjectDetail>(`/api/rooms/${id}`);
       if (current !== generation.current) return;
-      setDetail(previous => previous ? { ...result, messages: mergeMessages(previous.messages, result.messages).filter(message => !message.author_id || !result.blockedIds.includes(message.author_id)) } : result);
-      if (!hasDetail.current) setHasOlder(result.hasOlder);
+      setDetail(previous => previous && !initial ? { ...result, messages: mergeMessages(previous.messages, result.messages).filter(message => !message.author_id || !result.blockedIds.includes(message.author_id)) } : result);
+      if (!hasDetail.current || initial) setHasOlder(result.hasOlder);
       hasDetail.current = true;
       setError('');
     } catch (error) {
       if (current !== generation.current) return;
       if (error instanceof RoomRequestError && [401, 403, 404].includes(error.status)) { setDetail(null); hasDetail.current = false; }
       setError(failureText(error));
-    } finally { if (pendingLoad.current === current) pendingLoad.current = null; if (current === generation.current) setLoading(false); }
+    } finally { if (pendingLoad.current === current) pendingLoad.current = null; if (current === generation.current) { setLoading(false); if (queuedLoad.current !== null) { const initial = queuedLoad.current; queuedLoad.current = null; void load(initial); } } }
   }, [id, userId]);
 
   useEffect(() => {
     generation.current++; setDetail(null); hasDetail.current = false; setLoading(Boolean(userId)); setError(''); setInviteUrl(''); setDraft(''); setMessageId('');
-    pendingLoad.current = null; actionAbort.current?.abort();
+    pendingLoad.current = null; queuedLoad.current = null; actionAbort.current?.abort();
     if (!userId) return;
     void load(true);
     const interval = setInterval(() => { if (!document.hidden) void load(); }, 15000);
     const focus = () => { if (!document.hidden) void load(); };
     document.addEventListener('visibilitychange', focus); window.addEventListener('online', focus);
-    const storage = (event: StorageEvent) => { if (event.key === 'galaxy-safety-updated') focus(); };
-    window.addEventListener('galaxy-safety-changed', focus); window.addEventListener('storage', storage);
-    return () => { generation.current++; actionAbort.current?.abort(); clearInterval(interval); document.removeEventListener('visibilitychange', focus); window.removeEventListener('online', focus); window.removeEventListener('galaxy-safety-changed', focus); window.removeEventListener('storage', storage); };
+    const safetyChanged = () => { void load(true); };
+    const storage = (event: StorageEvent) => { if (event.key === 'galaxy-safety-updated') safetyChanged(); };
+    window.addEventListener('galaxy-safety-changed', safetyChanged); window.addEventListener('storage', storage);
+    return () => { generation.current++; actionAbort.current?.abort(); clearInterval(interval); document.removeEventListener('visibilitychange', focus); window.removeEventListener('online', focus); window.removeEventListener('galaxy-safety-changed', safetyChanged); window.removeEventListener('storage', storage); };
   }, [load, userId]);
 
   useEffect(() => {

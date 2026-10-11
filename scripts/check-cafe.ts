@@ -19,8 +19,9 @@ async function main() {
   const client = new Client(process.env.WORLD_SERVER_URL ?? 'http://127.0.0.1:2567');
   let first: Room<State> | undefined, second: Room<State> | undefined;
   try {
-    first = await client.joinOrCreate<State>('cafe', { name: 'Проверка A', color: 1 });
+    first = await client.create<State>('cafe', { name: 'Проверка A', color: 1 });
     second = await client.joinById<State>(first.roomId, { name: 'Проверка B', color: 2 });
+    first.onMessage('chat:zone', () => {}); second.onMessage('chat:zone', () => {});
     await until(() => Boolean(first?.state.players?.get(second!.sessionId) && second?.state.players?.get(first!.sessionId)));
     const a = first.state.players.get(first.sessionId)!;
     const b = first.state.players.get(second.sessionId)!;

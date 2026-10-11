@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { createServer } from 'node:http';
 import next from 'next';
+import { version } from '../package.json';
 import { Room, Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { CafeRoom } from './world/rooms/cafe-room';
@@ -15,7 +16,7 @@ async function start() {
   const httpServer = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      response.end(JSON.stringify({ status: 'ok', services: { web: true, world: true } }));
+      response.end(JSON.stringify({ status: 'ok', version, services: { web: true, world: true } }));
       return;
     }
     void handle(request, response).catch(() => {
@@ -29,6 +30,6 @@ async function start() {
   world.define('lobby', LobbyRoom);
   world.onShutdown(() => app.close());
   await world.listen(port, hostname);
-  console.log(`Galaxy Hub web and world listening on port ${port}`);
+  console.log(`Galaxy Hub ${version} web and world listening on port ${port}`);
 }
 start().catch(() => { console.error('Galaxy Hub could not start. Check build output and PORT.'); process.exitCode = 1; });

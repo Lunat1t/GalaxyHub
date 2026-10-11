@@ -1,0 +1,60 @@
+{
+  "environment": "Local production Chromium; mobile and soft keyboard simulated; not a Render or real phone benchmark.",
+  "results": [
+    {
+      "mobile": false,
+      "loading": [
+        {
+          "pass": 0,
+          "fullEntryMs": 4479,
+          "assets": 15,
+          "cachedBeforeEntry": 0,
+          "transferredBytes": 184946
+        },
+        {
+          "pass": 1,
+          "fullEntryMs": 1642,
+          "assets": 15,
+          "cachedBeforeEntry": 4,
+          "transferredBytes": 0
+        },
+        {
+          "pass": 2,
+          "fullEntryMs": 1986,
+          "assets": 15,
+          "cachedBeforeEntry": 15,
+          "transferredBytes": 0
+        }
+      ],
+      "cachedEntries": 18
+    },
+    {
+      "mobile": true,
+      "loading": [
+        {
+          "pass": 0,
+          "fullEntryMs": 2719,
+          "assets": 15,
+          "cachedBeforeEntry": 0,
+          "transferredBytes": 551130
+        },
+        {
+          "pass": 1,
+          "fullEntryMs": 1109,
+          "assets": 15,
+          "cachedBeforeEntry": 0,
+          "transferredBytes": 0
+        },
+        {
+          "pass": 2,
+          "fullEntryMs": 1184,
+          "assets": 15,
+          "cachedBeforeEntry": 15,
+          "transferredBytes": 0
+        }
+      ],
+      "cachedEntries": 18
+    }
+  ],
+  "errors": []
+}

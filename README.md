@@ -1,6 +1,9 @@
 # Galaxy Hub
 
-Основа первой версии: Next.js + TypeScript, Phaser, Colyseus и PostgreSQL.
+Первая версия 1.0: вход и профили, Café, чаты, комнаты проектов, блокировки и жалобы.
+Основа: Next.js + TypeScript, Phaser, Colyseus и Supabase PostgreSQL.
+
+Состав выпуска и результаты проверок: [docs/V1-RELEASE.md](docs/V1-RELEASE.md).
 
 ## Первый запуск
 
@@ -295,3 +298,31 @@ RLS разрешает человеку читать только собстве
 
 Supabase Security Advisor также сообщает, что защита от скомпрометированных паролей
 выключена. [Настройка защиты паролей](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
+
+
+## Повторяемая проверка первой версии
+
+После `npm ci && npm run build` запустите `PORT=2567 npm run serve`.
+В отдельном терминале выполните:
+
+```sh
+npm run typecheck
+npm run check:cafe
+npm run check:v1
+npx playwright install chromium
+npm run check:browser
+```
+
+Если Chromium уже установлен в системе:
+`CHROMIUM_PATH=/usr/bin/chromium npm run check:browser`.
+По умолчанию проверки используют только локальный сервер. `WORLD_SERVER_URL`
+задаёт адрес для проверок Colyseus, `CHECK_URL` — для браузера, `CHECK_OUTPUT` —
+каталог для результатов и снимков. Каталог должен существовать.
+
+`scripts/checks/rls.sql` содержит проверку прав базы с временными аккаунтами,
+комнатой, сообщениями и жалобами внутри транзакции. Запускайте целиком от владельца
+базы: в конце выполняется ROLLBACK и проверяется отсутствие временных аккаунтов.
+Она не проверяет настоящую отправку писем или получение сессии Supabase Auth.
+
+При следующем выпуске меняйте версию кеша в `public/sw.js`, чтобы установленная PWA
+предложила обновление. `/health` возвращает номер версии работающего приложения.
