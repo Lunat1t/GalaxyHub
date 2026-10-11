@@ -5,6 +5,7 @@ import { MAX_PENDING_STEPS, MOVEMENT_STEP_MS, movementStep, type MovementFrame }
 import { randomUUID } from 'node:crypto';
 import { CHAT_HISTORY_LIMIT, CHAT_MAX_LENGTH, nearbyTable, type ChatChannel, type ChatMessage, type TableChannel } from '../../shared/cafe-chat';
 import { authenticateCafe, type CafeIdentity } from '../cafe-identity';
+import { CafeSafety } from '../cafe-safety';
 
 // Schema fields use accessors; tsconfig disables define-style class fields.
 class CafePlayer extends Schema {
@@ -33,6 +34,15 @@ export class CafeRoom extends Room<CafeState> {
   private refreshing = new Set<string>();
   private lastRefresh = new Map<string, number>();
   private movementQueues = new Map<string, { received: number; frames: MovementFrame[] }>();
+  private chatAuthors = new Map<string, string>();
+  private safety!: CafeSafety;
+
+  private syncChat(client: Client) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+    const channel = nearbyTable(player);
+    client.send('chat:sync', { channel, general: (this.chatHistory.get('general') ?? []).filter(message => this.safety.allows(client.sessionId, message)), nearby: channel ? (this.chatHistory.get(channel) ?? []).filter(message => this.safety.allows(client.sessionId, message)) : [] });
+  }
 
   async onAuth(_client: Client, options: unknown) {
     const value = options && typeof options === 'object' ? options as Record<string, unknown> : {};
@@ -52,6 +62,12 @@ export class CafeRoom extends Room<CafeState> {
     this.setState(new CafeState());
     this.setSeatReservationTime(30);
     this.setPatchRate(33);
+    this.safety = new CafeSafety({ roomId: this.roomId, identity: id => this.identities.get(id), identities: () => this.identities.entries(), player: id => this.state.players.get(id), messageUser: id => this.chatAuthors.get(id), history: () => [...this.chatHistory.values()].flat(), syncChat: client => this.syncChat(client), message: (id, recipient) => {
+      const player = this.state.players.get(recipient);
+      const found = [...this.chatHistory.values()].flat().find(message => message.id === id);
+      return player && found && (found.channel === 'general' || found.channel === nearbyTable(player)) ? found : undefined;
+    } });
+    this.onMessage('safety:action', (client, payload) => { void this.safety.action(client, payload); });
     this.onMessage('identity:refresh', async (client, payload: unknown) => {
       const current = this.identities.get(client.sessionId);
       if (!current?.account || this.refreshing.has(client.sessionId)) return;
@@ -68,12 +84,7 @@ export class CafeRoom extends Room<CafeState> {
       } catch { client.send('identity:error', { message: 'Не удалось обновить профиль или сессию. Повторите вход в Café.' }); }
       finally { this.refreshing.delete(client.sessionId); }
     });
-    this.onMessage('chat:sync', client => {
-      const player = this.state.players.get(client.sessionId);
-      if (!player) return;
-      const channel = nearbyTable(player);
-      client.send('chat:sync', { channel, general: this.chatHistory.get('general') ?? [], nearby: channel ? this.chatHistory.get(channel) ?? [] : [] });
-    });
+    this.onMessage('chat:sync', client => this.syncChat(client));
     this.onMessage('chat:send', (client, payload: unknown) => {
       if (!payload || typeof payload !== 'object') return;
       const value = payload as Record<string, unknown>;
@@ -90,12 +101,15 @@ export class CafeRoom extends Room<CafeState> {
       if (now - (this.lastChat.get(client.sessionId) ?? 0) < 750) return reject('Подождите немного перед следующим сообщением.');
       this.lastChat.set(client.sessionId, now);
       const message: ChatMessage = { id: randomUUID(), requestId, channel: channel as ChatChannel, authorId: client.sessionId, authorName: player.name, authorAvatar: player.avatar, account: player.account, text, sentAt: now };
+      const author = this.identities.get(client.sessionId)?.userId;
+      if (author) this.chatAuthors.set(message.id, author);
       const history = this.chatHistory.get(message.channel) ?? [];
       history.push(message);
+      for (const evicted of history.slice(0, Math.max(0, history.length - CHAT_HISTORY_LIMIT))) this.chatAuthors.delete(evicted.id);
       this.chatHistory.set(message.channel, history.slice(-CHAT_HISTORY_LIMIT));
       for (const recipient of this.clients) {
         const recipientPlayer = this.state.players.get(recipient.sessionId);
-        if (channel === 'general' || (recipientPlayer && nearbyTable(recipientPlayer) === channel)) recipient.send('chat:message', message);
+        if ((channel === 'general' || (recipientPlayer && nearbyTable(recipientPlayer) === channel)) && this.safety.allows(recipient.sessionId, message)) recipient.send('chat:message', message);
       }
     });
     this.onMessage('move', (client, payload: unknown) => {
@@ -150,7 +164,7 @@ export class CafeRoom extends Room<CafeState> {
           const channel = nearbyTable(player);
           if (this.chatZones.get(id) !== channel) {
             this.chatZones.set(id, channel);
-            this.clients.find(client => client.sessionId === id)?.send('chat:zone', { channel, messages: channel ? this.chatHistory.get(channel) ?? [] : [] });
+            this.clients.find(client => client.sessionId === id)?.send('chat:zone', { channel, messages: channel ? (this.chatHistory.get(channel) ?? []).filter(message => this.safety.allows(id, message)) : [] });
           }
         });
       }
@@ -178,6 +192,7 @@ export class CafeRoom extends Room<CafeState> {
     this.state.players.delete(client.sessionId);
     this.inputs.delete(client.sessionId);
     this.movementQueues.delete(client.sessionId);
+    this.safety.forget(client.sessionId);
     this.lastMessage.delete(client.sessionId);
     this.lastChat.delete(client.sessionId);
     this.chatZones.delete(client.sessionId);

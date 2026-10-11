@@ -10,17 +10,18 @@ export async function GET(_request: NextRequest, context: Context) {
     const room = await client.from('project_rooms').select(ROOM_COLUMNS).eq('id', id).maybeSingle();
     databaseError(room.error);
     if (!room.data) throw new RoomFailure(404, 'Комната недоступна. Войдите по ссылке-приглашению.');
-    const [members, messages, links] = await Promise.all([
+    const [members, messages, links, blocks] = await Promise.all([
       client.from('project_members').select('user_id,joined_at,profiles(name,avatar,visible)').eq('room_id', id).order('joined_at').limit(50),
       client.from('project_messages').select(MESSAGE_COLUMNS).eq('room_id', id).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(50),
       client.from('project_links').select(LINK_COLUMNS).eq('room_id', id).order('created_at').limit(100),
+      client.from('user_blocks').select('blocked_id').eq('blocker_id', user.id),
     ]);
-    for (const result of [members, messages, links]) databaseError(result.error);
+    for (const result of [members, messages, links, blocks]) databaseError(result.error);
     const roster = (members.data ?? []).map(member => {
       const profile = member.profiles as unknown as { name: string; avatar: string; visible: boolean } | null;
       return { user_id: member.user_id, joined_at: member.joined_at, name: profile?.visible || member.user_id === user.id ? profile?.name ?? 'Участник' : 'Участник', avatar: profile?.visible || member.user_id === user.id ? profile?.avatar ?? '' : '' };
     });
-    return reply({ room: room.data, members: roster, messages: (messages.data ?? []).reverse(), hasOlder: messages.data?.length === 50, links: links.data ?? [], userId: user.id });
+    return reply({ room: room.data, members: roster, messages: (messages.data ?? []).reverse(), hasOlder: messages.data?.length === 50, links: links.data ?? [], userId: user.id, blockedIds: (blocks.data ?? []).map(block => block.blocked_id) });
   } catch (error) { return roomError(error); }
 }
 export async function PATCH(request: NextRequest, context: Context) {

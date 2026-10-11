@@ -8,6 +8,8 @@ import { nearbyTable, channelName } from '@/shared/cafe-chat';
 import CafeChat from './cafe-chat';
 import { getSupabaseBrowser } from '@/lib/supabase/browser';
 import { loadCafeRuntime } from './load-cafe';
+import SafetyActions from '../safety-actions';
+import type { CafeSafetyState } from '@/shared/safety';
 
 type Player = { name: string; color: number; x: number; y: number; moving: boolean; avatar: string; account: boolean; inputSeq: number };
 type Snapshot = { players: Map<string, Player> };
@@ -29,6 +31,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
   const [attempt, setAttempt] = useState(0);
   const [roomId, setRoomId] = useState('');
   const [fullscreenError, setFullscreenError] = useState('');
+  const [safety, setSafety] = useState<CafeSafetyState>({ blocked: [] });
 
   function onTyping(value: boolean) {
     typing.current = value;
@@ -54,6 +57,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
     let refreshIdentity = () => {};
     setStatus('Подключаемся…'); setConnected(false); setMembers([]); setArea('Общий зал'); setChatRoom(null);
     typing.current = false;
+    setSafety({ blocked: [] });
     touch.current = { x: 0, y: 0 };
     const stop = () => {
       touch.current = { x: 0, y: 0 };
@@ -70,6 +74,9 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
       }
     };
     window.addEventListener('storage', profileChanged);
+    const refreshSafety = () => { if (useAccount && room?.connection.isOpen) room.send('safety:action', { requestId: crypto.randomUUID(), action: 'refresh' }); };
+    const safetyStorage = (event: StorageEvent) => { if (event.key === 'galaxy-safety-updated') refreshSafety(); };
+    window.addEventListener('galaxy-safety-changed', refreshSafety); window.addEventListener('storage', safetyStorage);
 
     async function start() {
       try {
@@ -84,6 +91,8 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
         const joined = await client.joinOrCreate<Snapshot>('cafe', { name, color, movementVersion: 2, ...(useAccount ? { accessToken: token } : {}) });
         if (disposed) { await joined.leave(); return; }
         room = joined;
+        joined.onMessage('safety:result', () => {});
+        joined.onMessage<CafeSafetyState>('safety:state', data => { if (!disposed) setSafety(data); });
         setRoomId(joined.roomId);
         joined.onLeave(code => {
           if (!disposed) { setConnected(false); setMembers([]); setStatus(code === 4001 ? 'Сессия истекла. Войдите снова или переподключитесь.' : 'Соединение закрыто. Нажмите «Переподключиться».'); }
@@ -175,6 +184,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             joined.onStateChange(state => { if (!disposed) this.applySnapshot(state); });
             this.applySnapshot(joined.state);
             setConnected(true); setStatus('Вы в Café'); setChatRoom(joined);
+            joined.send('safety:action', { requestId: crypto.randomUUID(), action: 'sync' });
           }
           private applySnapshot(state: Snapshot) {
             if (!state?.players) return;
@@ -278,6 +288,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
       unsubscribeAuth();
       if (profileRefreshTimer) clearTimeout(profileRefreshTimer);
       window.removeEventListener('storage', profileChanged);
+      window.removeEventListener('galaxy-safety-changed', refreshSafety); window.removeEventListener('storage', safetyStorage);
       window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', visibility);
       touch.current = { x: 0, y: 0 };
       game?.destroy(true);
@@ -293,10 +304,11 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
     </header>
     {!connected && <div className="cafe-reconnect"><button onClick={() => setAttempt(value => value + 1)}>Переподключиться</button></div>}
     {fullscreenError && <p className="cafe-fullscreen-error" role="status">{fullscreenError}</p>}
-    {chatRoom && <CafeChat room={chatRoom} connected={connected} onTyping={onTyping} />}
+    {chatRoom && <CafeChat room={chatRoom} connected={connected} onTyping={onTyping} safety={safety} account={useAccount} />}
     <details className="cafe-info"><summary>Участники и управление</summary>
       <p>Стрелки или WASD — движение. На телефоне удерживайте кнопки направления.</p>
-      <ul aria-label="Участники Café">{members.map(member => <li key={member.id}>{member.avatar} {member.name} · {member.account ? 'аккаунт' : 'гость'}</li>)}</ul>
+      <ul aria-label="Участники Café">{members.map(member => <li key={member.id}>{member.avatar} {member.name} · {member.account ? 'аккаунт' : 'гость'}{chatRoom && member.id !== chatRoom.sessionId && <SafetyActions target={{ kind: 'cafe_player', sessionId: member.id }} cafe={chatRoom} blocked={safety.blocked.some(row => row.sessionId === member.id)} account={useAccount} onTyping={onTyping} />}</li>)}</ul>
+      {chatRoom && Boolean(safety.blocked.length) && <><h3>Скрытые собеседники</h3><ul>{safety.blocked.map(row => <li key={row.sessionId}>{row.name} · {row.persistent ? 'аккаунт заблокирован' : 'до конца посещения'}<SafetyActions target={{ kind: 'cafe_player', sessionId: row.sessionId }} cafe={chatRoom} blocked account={useAccount} onTyping={onTyping} /></li>)}</ul></>}
       <small>Комната: {roomId}</small>
     </details>
     <div className="cafe-controls" aria-label="Управление аватаром">{DIRECTIONS.map(direction => <button key={direction.label} aria-label={direction.label} disabled={!connected}

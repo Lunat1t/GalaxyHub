@@ -7,6 +7,8 @@ import { supabaseConfig } from '@/lib/supabase/config';
 import { AVATARS, PROFILE_COLUMNS, authErrorMessage, type Profile } from '@/lib/profiles';
 import { PwaInstall } from './pwa';
 import { safeAuthNext } from '@/shared/project-rooms';
+import SafetyActions from './safety-actions';
+import BlockedUsers from './blocked-users';
 
 type Screen = 'login' | 'register' | 'forgot';
 type Draft = Omit<Profile, 'id' | 'interests'> & { interests: string };
@@ -83,6 +85,21 @@ export default function AuthProfile() {
     void load();
     return () => { alive = false; };
   }, [userId, refresh]);
+
+  useEffect(() => {
+    let alive = true;
+    const update = () => {
+      if (!userId) return;
+      void getSupabaseBrowser().from('profiles').select(PROFILE_COLUMNS).eq('visible', true).order('name').limit(100).then(result => {
+        if (!alive) return;
+        if (result.error) setError('Не удалось обновить список участников.');
+        else setPeople((result.data ?? []) as Profile[]);
+      });
+    };
+    const storage = (event: StorageEvent) => { if (event.key === 'galaxy-safety-updated') update(); };
+    window.addEventListener('galaxy-safety-changed', update); window.addEventListener('storage', storage);
+    return () => { alive = false; window.removeEventListener('galaxy-safety-changed', update); window.removeEventListener('storage', storage); };
+  }, [userId]);
 
   function changeScreen(next: Screen) { setScreen(next); setError(''); setNotice(''); }
 
@@ -199,7 +216,8 @@ export default function AuthProfile() {
             </fieldset></form>
           </section>
           <section><h2>Сохранённый профиль</h2><ProfileCard profile={profile} /><p>Видимость: {profile.visible ? 'виден другим участникам' : 'скрыт от других участников'}.</p></section>
-          <section><h2>Участники</h2><p>Показаны до 100 видимых профилей.</p>{people.length ? <ul className="people">{people.map(item => <li key={item.id}><ProfileCard profile={item} /></li>)}</ul> : <p>Видимых участников пока нет.</p>}</section>
+          <BlockedUsers userId={user.id} />
+          <section><h2>Участники</h2><p>Показаны до 100 видимых профилей.</p>{people.length ? <ul className="people">{people.map(item => <li key={item.id}><ProfileCard profile={item} />{item.id !== user.id && <SafetyActions target={{ kind: 'profile', userId: item.id }} userId={item.id} />}</li>)}</ul> : <p>Видимых участников пока нет.</p>}</section>
         </>}
       </>}
   </main>;

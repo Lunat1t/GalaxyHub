@@ -107,3 +107,9 @@ button:disabled { cursor: wait; opacity: .6; }
 .room-settings > button, .room-settings > label { margin: 12px 0; }
 .room-settings input { font-size: 16px; }
 @media (max-width: 700px) { .project-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; } .project-messages header { flex-wrap: wrap; } }
+.safety-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; align-items: flex-start; }
+.safety-actions button { font-size: 12px; padding: 5px 8px; }
+.safety-actions form, .safety-actions p { flex-basis: 100%; margin: 4px 0; }
+.safety-actions form { display: grid; gap: 8px; }
+.safety-actions select { max-width: 100%; padding: 6px; }
+.safety-actions textarea { width: 100%; font-size: 16px; }

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ProjectDetail, ProjectMessage, ProjectRoom } from '@/shared/project-rooms';
 import { failureText, roomRequest, RoomRequestError, useRoomAccount } from './room-client';
+import SafetyActions from '../safety-actions';
 
 function mergeMessages(existing: ProjectMessage[], incoming: ProjectMessage[]) {
   return [...new Map([...existing, ...incoming].map(message => [message.id, message])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
@@ -50,7 +51,7 @@ export default function ProjectRoomPage({ id }: { id: string }) {
     try {
       const result = await roomRequest<ProjectDetail>(`/api/rooms/${id}`);
       if (current !== generation.current) return;
-      setDetail(previous => previous ? { ...result, messages: mergeMessages(previous.messages, result.messages) } : result);
+      setDetail(previous => previous ? { ...result, messages: mergeMessages(previous.messages, result.messages).filter(message => !message.author_id || !result.blockedIds.includes(message.author_id)) } : result);
       if (!hasDetail.current) setHasOlder(result.hasOlder);
       hasDetail.current = true;
       setError('');
@@ -69,7 +70,9 @@ export default function ProjectRoomPage({ id }: { id: string }) {
     const interval = setInterval(() => { if (!document.hidden) void load(); }, 15000);
     const focus = () => { if (!document.hidden) void load(); };
     document.addEventListener('visibilitychange', focus); window.addEventListener('online', focus);
-    return () => { generation.current++; actionAbort.current?.abort(); clearInterval(interval); document.removeEventListener('visibilitychange', focus); window.removeEventListener('online', focus); };
+    const storage = (event: StorageEvent) => { if (event.key === 'galaxy-safety-updated') focus(); };
+    window.addEventListener('galaxy-safety-changed', focus); window.addEventListener('storage', storage);
+    return () => { generation.current++; actionAbort.current?.abort(); clearInterval(interval); document.removeEventListener('visibilitychange', focus); window.removeEventListener('online', focus); window.removeEventListener('galaxy-safety-changed', focus); window.removeEventListener('storage', storage); };
   }, [load, userId]);
 
   useEffect(() => {
@@ -149,6 +152,7 @@ export default function ProjectRoomPage({ id }: { id: string }) {
         <button disabled={Boolean(busy)} onClick={() => void load(true)}>Повторить загрузку</button>
       </> : <>
         <header><h1>{detail.room.name}</h1><p>{detail.room.description || 'Описание пока не добавлено.'}</p></header>
+        {!owner && <SafetyActions target={{ kind: 'project_room', roomId: id }} />}
         <div className="project-actions"><button onClick={() => void copy()}>Скопировать ссылку на комнату</button><button onClick={() => void load(true)}>Обновить</button>{!owner && <button disabled={Boolean(busy)} onClick={() => void action('leave', () => removeMember(user.id))}>Покинуть комнату</button>}</div>
         {owner && <details className="room-settings"><summary>Управление комнатой</summary>
           <button disabled={Boolean(busy)} onClick={() => void action('invite', rotate)}>Создать новую ссылку-приглашение</button>
@@ -162,11 +166,11 @@ export default function ProjectRoomPage({ id }: { id: string }) {
           {hasOlder && <button disabled={Boolean(busy)} onClick={() => void action('older', older)}>Показать более ранние сообщения</button>}
           <div ref={log} className="project-messages" role="log" aria-label="Переписка проекта" aria-live="polite" aria-relevant="additions" onScroll={() => { const element = log.current; if (element) follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40; }}>
             {!detail.messages.length && <p>Начните обсуждение проекта.</p>}
-            {detail.messages.map(message => <article key={message.id}><header><strong>{message.author_avatar} {message.author_name}{message.author_id === user.id ? ' (вы)' : ''}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</time></header><p>{message.content}</p></article>)}
+            {detail.messages.map(message => <article key={message.id}><header><strong>{message.author_avatar} {message.author_name}{message.author_id === user.id ? ' (вы)' : ''}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</time></header><p>{message.content}</p>{message.author_id !== user.id && <SafetyActions target={{ kind: 'project_message', messageId: message.id }} userId={message.author_id ?? undefined} />}</article>)}
           </div>
           <form onSubmit={send} className="project-message-form"><label>Сообщение<textarea rows={3} value={draft} disabled={Boolean(busy)} maxLength={2000} onChange={event => { setDraft(event.target.value); if (messageId) setMessageId(''); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(event); } }} /></label><small>{draft.length}/2000 · Enter — отправить, Shift+Enter — новая строка</small><button disabled={Boolean(busy) || !draft.trim()}>{busy === 'message' ? 'Отправляем…' : 'Отправить'}</button></form>
         </section><div>
-          <section><h2>Участники · {detail.members.length}</h2><ul className="project-members">{detail.members.map(member => <li key={member.user_id}>{member.avatar} {member.name}{member.user_id === user.id ? ' (вы)' : ''}{member.user_id === detail.room.owner_id ? ' · создатель' : ''}{owner && member.user_id !== user.id && <button disabled={Boolean(busy)} onClick={() => void action('remove', () => removeMember(member.user_id))}>Убрать из комнаты</button>}</li>)}</ul></section>
+          <section><h2>Участники · {detail.members.length}</h2><ul className="project-members">{detail.members.map(member => <li key={member.user_id}>{member.avatar} {member.name}{member.user_id === user.id ? ' (вы)' : ''}{member.user_id === detail.room.owner_id ? ' · создатель' : ''}{member.user_id !== user.id && <SafetyActions target={{ kind: 'project_member', roomId: id, userId: member.user_id }} userId={member.user_id} blocked={detail.blockedIds.includes(member.user_id)} />}{owner && member.user_id !== user.id && <button disabled={Boolean(busy)} onClick={() => void action('remove', () => removeMember(member.user_id))}>Убрать из комнаты</button>}</li>)}</ul></section>
           <section><h2>Материалы</h2><ul className="project-links">{detail.links.map(link => <li key={link.id}><a href={link.url} target="_blank" rel="noopener noreferrer">{link.label}</a><small>{link.url}</small>{(owner || link.added_by === user.id) && <button disabled={Boolean(busy)} onClick={() => void action('delete-link', async () => { await mutate(`/api/rooms/${id}/links`, 'DELETE', { id: link.id }); await load(true); })}>Удалить ссылку</button>}</li>)}</ul>
             <form onSubmit={event => { event.preventDefault(); void action('link', async () => { await mutate(`/api/rooms/${id}/links`, 'POST', { label, url }); setLabel(''); setUrl(''); await load(true); }); }}><fieldset disabled={Boolean(busy)} className="form-fields"><label>Название материала<input required maxLength={80} value={label} onChange={event => setLabel(event.target.value)} /></label><label>Ссылка<input type="url" required maxLength={1800} placeholder="https://github.com/…" value={url} onChange={event => setUrl(event.target.value)} /></label><button>Добавить материал</button></fieldset></form>
           </section>

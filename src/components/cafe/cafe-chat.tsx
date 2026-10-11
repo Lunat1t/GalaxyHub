@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Room } from 'colyseus.js';
 import { CHAT_HISTORY_LIMIT, CHAT_MAX_LENGTH, channelName, type ChatChannel, type ChatError, type ChatMessage, type ChatSync, type ChatZone, type TableChannel } from '@/shared/cafe-chat';
+import SafetyActions from '../safety-actions';
+import type { CafeSafetyState } from '@/shared/safety';
 
 type ChatConnection = Pick<Room, 'onMessage' | 'send' | 'sessionId' | 'connection'>;
 
-export default function CafeChat({ room, connected, onTyping }: { room: ChatConnection; connected: boolean; onTyping: (typing: boolean) => void }) {
+export default function CafeChat({ room, connected, onTyping, safety, account }: { room: ChatConnection; connected: boolean; onTyping: (typing: boolean) => void; safety: CafeSafetyState; account: boolean }) {
   const [open, setOpen] = useState(false);
   const openRef = useRef(false);
   const [unread, setUnread] = useState(0);
@@ -21,7 +23,7 @@ export default function CafeChat({ room, connected, onTyping }: { room: ChatConn
   const list = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const channel = selected === 'nearby' && table ? table : 'general';
-  const history = messages[channel] ?? [];
+  const history = (messages[channel] ?? []).filter(message => !safety.blocked.some(row => row.sessionId === message.authorId));
 
   useEffect(() => {
     const clearPending = () => {
@@ -110,6 +112,7 @@ export default function CafeChat({ room, connected, onTyping }: { room: ChatConn
         {history.map(message => <div className="cafe-chat-message" key={message.id}>
           <div><strong>{message.authorAvatar && `${message.authorAvatar} `}{message.authorName}{message.authorId === room.sessionId ? ' (вы)' : ''}{message.account ? ' · аккаунт' : ' · гость'}</strong><time dateTime={new Date(message.sentAt).toISOString()}>{new Date(message.sentAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</time></div>
           <p>{message.text}</p>
+          {message.authorId !== room.sessionId && <SafetyActions target={{ kind: 'cafe_message', messageId: message.id, sessionId: message.authorId }} cafe={room} account={account} onTyping={onTyping} />}
         </div>)}
       </div>
       <form onSubmit={send} className="cafe-chat-form">
