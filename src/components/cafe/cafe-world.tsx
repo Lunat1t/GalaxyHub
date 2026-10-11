@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as PhaserTypes from 'phaser';
 import type { Room } from 'colyseus.js';
-import { advancePlayer, canStandAt, CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS } from '@/shared/cafe-map';
+import { advancePlayer, canStandAt, CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS, PLAYER_RADIUS, WALK_SPEED } from '@/shared/cafe-map';
 import { nearbyTable, channelName } from '@/shared/cafe-chat';
 import CafeChat from './cafe-chat';
 import { getSupabaseBrowser } from '@/lib/supabase/browser';
@@ -231,7 +231,13 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
               me.container.setPosition(next.x, next.y);
               const error = Math.hypot(me.target.x - next.x, me.target.y - next.y);
               const settled = !moving && !me.target.moving && performance.now() - this.idleSince > 250;
-              if (error > 32 || settled) {
+              // During held movement the latest snapshot is behind local prediction by
+              // network latency. A 32px threshold pulled the player backwards after
+              // ~210ms, causing a pause until the first movement snapshot arrived.
+              // Allow 750ms of travel while moving; still reconcile larger divergence
+              // and converge to the authoritative position after movement stops.
+              const correctionThreshold = moving ? WALK_SPEED * .75 + PLAYER_RADIUS : 32;
+              if (error > correctionThreshold || settled) {
                 const blend = 1 - Math.exp(-Math.min(delta, 50) / 100);
                 const corrected = { x: next.x + (me.target.x - next.x) * blend, y: next.y + (me.target.y - next.y) * blend };
                 if (canStandAt(corrected.x, corrected.y)) me.container.setPosition(corrected.x, corrected.y);
