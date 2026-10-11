@@ -15,7 +15,7 @@ import { PointerDirections } from '@/shared/cafe-controls';
 type Player = { name: string; color: number; x: number; y: number; moving: boolean; avatar: string; account: boolean; inputSeq: number };
 type Snapshot = { players: Map<string, Player> };
 type Member = { id: string; name: string; avatar: string; account: boolean };
-type Visual = { container: PhaserTypes.GameObjects.Container; sprite: PhaserTypes.GameObjects.Image; label: PhaserTypes.GameObjects.Text; target: Player };
+type Visual = { container: PhaserTypes.GameObjects.Container; sprite: PhaserTypes.GameObjects.Sprite; direction: 'front' | 'left' | 'right' | 'back'; shadow: PhaserTypes.GameObjects.Ellipse; label: PhaserTypes.GameObjects.Text; target: Player };
 const DIRECTIONS = [{ label: 'Вверх', x: 0, y: -1, glyph: '↑' }, { label: 'Влево', x: -1, y: 0, glyph: '←' }, { label: 'Вниз', x: 0, y: 1, glyph: '↓' }, { label: 'Вправо', x: 1, y: 0, glyph: '→' }];
 
 export default function CafeWorld({ name, color, useAccount = false, onLeave }: { name: string; color: number; useAccount?: boolean; onLeave: () => void }) {
@@ -143,7 +143,9 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
           private lastDirection = '0,0';
           private keys!: Record<string, PhaserTypes.Input.Keyboard.Key>;
           constructor() { super('Cafe'); }
+          preload() { this.load.atlas('black-cat', '/sprites/black-cat-v1.png', '/sprites/black-cat-v1.json'); }
           create() {
+            if (!this.textures.exists('black-cat')) { setStatus('Не удалось загрузить персонажа. Нажмите «Переподключиться».'); return; }
             const fitCamera = () => {
               const { width, height } = this.scale;
               // Fit the room on large screens and keep avatars readable in portrait.
@@ -193,15 +195,9 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             g.fillStyle(0x987459).fillRect(44, 104, 16, 12).fillRect(732, 480, 16, 12);
             g.fillStyle(0xeee1c6).fillRect(352, 512, 96, 32);
             this.add.text(400, 525, 'ВХОД', { fontFamily: 'monospace', fontSize: '12px', color: '#35271e' }).setOrigin(.5);
-            PLAYER_COLORS.forEach((value, index) => {
-              const avatar = this.make.graphics({ x: 0, y: 0 });
-              avatar.fillStyle(0x36312f).fillRect(4, 18, 4, 6).fillRect(10, 18, 4, 6);
-              avatar.fillStyle(value).fillRect(3, 10, 12, 10).fillRect(1, 12, 2, 6).fillRect(15, 12, 2, 6);
-              avatar.fillStyle(0xe9b98d).fillRect(4, 2, 10, 9);
-              avatar.fillStyle(0x48382e).fillRect(4, 0, 10, 3).fillRect(2, 2, 3, 4);
-              avatar.fillStyle(0x352b26).fillRect(6, 5, 2, 2).fillRect(11, 5, 2, 2);
-              avatar.generateTexture(`person-${index}`, 18, 24); avatar.destroy();
-            });
+            for (const direction of ['front', 'left', 'right', 'back']) {
+              this.anims.create({ key: `cat-walk-${direction}`, frames: [0, 1, 2, 3].map(frame => ({ key: 'black-cat', frame: `${direction}-${frame}` })), frameRate: 8, repeat: -1 });
+            }
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D') as Record<string, PhaserTypes.Input.Keyboard.Key>;
             this.input.keyboard!.enabled = !typing.current;
             resetInput = () => {
@@ -226,10 +222,10 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
                 const shadow = this.add.ellipse(0, 0, 26, 10, 0x352b26, .25);
                 const ring = this.add.ellipse(0, 0, 30, 12).setStrokeStyle(2, 0x284f80);
                 ring.setVisible(id === joined.sessionId);
-                const sprite = this.add.image(0, 0, `person-${player.color}`).setScale(2).setOrigin(.5, 1);
-                const label = this.add.text(0, -58, player.name + (id === joined.sessionId ? ' (вы)' : ''), { fontFamily: 'Arial', fontSize: '13px', color: '#ffffff', backgroundColor: '#493c31', padding: { x: 4, y: 2 } }).setOrigin(.5);
+                const sprite = this.add.sprite(0, 0, 'black-cat', 'front-0').setScale(.18).setOrigin(.5, 316 / 336);
+                const label = this.add.text(0, -68, player.name + (id === joined.sessionId ? ' (вы)' : ''), { fontFamily: 'Arial', fontSize: '13px', color: '#ffffff', backgroundColor: '#493c31', padding: { x: 4, y: 2 } }).setOrigin(.5);
                 const container = this.add.container(player.x, player.y, [shadow, ring, sprite, label]);
-                visual = { container, sprite, label, target: player }; this.visuals.set(id, visual);
+                visual = { container, sprite, label, shadow, direction: 'front', target: player }; this.visuals.set(id, visual);
                 if (id === joined.sessionId) this.cameras.main.startFollow(container, true, 1, 1);
               }
               // Schema fields are prototype accessors, so explicitly copy coordinates.
@@ -239,7 +235,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
                 this.prediction.reconcile(player, player.inputSeq);
                 visual.container.setPosition(this.prediction.position.x, this.prediction.position.y);
               }
-              visual.sprite.setTexture(`person-${player.color}`);
+              visual.shadow.setFillStyle(PLAYER_COLORS[player.color] ?? PLAYER_COLORS[0], .3);
               const label = `${player.avatar ? `${player.avatar} ` : ''}${player.name}${id === joined.sessionId ? ' (вы)' : ''}${player.account ? ' · аккаунт' : ' · гость'}`;
               if (visual.label.text !== label) visual.label.setText(label);
             });
@@ -250,6 +246,15 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             if (me) {
               const nearby = nearbyTable(me);
               setArea(nearby ? channelName(nearby) : 'Общий зал');
+            }
+          }
+          private animateVisual(visual: Visual, x: number, y: number, moving: boolean) {
+            if (moving && (x || y)) visual.direction = Math.abs(x) > Math.abs(y) ? (x > 0 ? 'right' : 'left') : (y > 0 ? 'front' : 'back');
+            if (moving) {
+              const key = `cat-walk-${visual.direction}`;
+              if (visual.sprite.anims.currentAnim?.key !== key || !visual.sprite.anims.isPlaying) visual.sprite.play(key);
+            } else {
+              visual.sprite.anims.stop(); visual.sprite.setFrame(`${visual.direction}-0`);
             }
           }
           private predictInput(input: { x: number; y: number }) {
@@ -269,15 +274,16 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             this.visuals.forEach((visual, id) => {
               if (id === joined.sessionId) return;
               const blend = Math.min(1, delta / 70);
+              const dx = visual.target.x - visual.container.x, dy = visual.target.y - visual.container.y;
               visual.container.x += (visual.target.x - visual.container.x) * blend;
               visual.container.y += (visual.target.y - visual.container.y) * blend;
               visual.container.setDepth(visual.container.y);
-              visual.sprite.y = visual.target.moving ? Math.round(Math.sin(time / 90)) * 2 : 0;
+              this.animateVisual(visual, dx, dy, Math.hypot(dx, dy) > .2);
             });
             const me = this.visuals.get(joined.sessionId);
             if (!joined.connection.isOpen || document.hidden || !document.hasFocus() || typing.current) {
               this.elapsed = 0;
-              if (me) me.sprite.y = 0;
+              if (me) this.animateVisual(me, 0, 0, false);
               return;
             }
             let x = Number(this.keys.RIGHT.isDown || this.keys.D.isDown) - Number(this.keys.LEFT.isDown || this.keys.A.isDown);
@@ -297,7 +303,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             }
             if (me) {
               me.container.setDepth(me.container.y);
-              me.sprite.y = moving ? Math.round(Math.sin(time / 90)) * 2 : 0;
+              this.animateVisual(me, x, y, moving);
             }
           }
         }

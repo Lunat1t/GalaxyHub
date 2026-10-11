@@ -81,7 +81,7 @@ export default function Cafe() {
       </section>
       <section><h2>Гостевой вход</h2><form onSubmit={enter} onFocus={preloadCafe}>
       <label>Имя гостя<input required maxLength={24} autoComplete="nickname" value={name} onChange={e => setName(e.target.value)} /></label>
-      <fieldset><legend>Цвет аватара</legend><div className="avatars">{PLAYER_COLORS.map((value, index) => <label key={value}>
+      <fieldset><legend>Цвет метки участника</legend><div className="avatars">{PLAYER_COLORS.map((value, index) => <label key={value}>
         <input type="radio" name="color" checked={index === color} onChange={() => setColor(index)} /><span className="avatar-color" style={{ backgroundColor: `#${value.toString(16).padStart(6, '0')}` }} aria-label={`Цвет ${index + 1}`} />
       </label>)}</div></fieldset>
       <button type="submit">Войти в Café</button>
