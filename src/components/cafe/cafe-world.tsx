@@ -285,7 +285,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
     <div ref={host} className="cafe-canvas" role="img" aria-label="Карта Café с аватарами участников" />
     <header className="cafe-hud">
       <div><strong>Café</strong><span role="status">{status}</span>{connected && <span>В Café: {members.length} · {area}</span>}</div>
-      <div className="cafe-actions"><button onClick={toggleFullscreen}>Полный экран</button><button onClick={onLeave}>Выйти из Café</button></div>
+      <div className="cafe-actions"><button onClick={toggleFullscreen}>Полный экран</button><a href="/rooms">Комнаты проектов</a><button onClick={onLeave}>Выйти из Café</button></div>
     </header>
     {!connected && <div className="cafe-reconnect"><button onClick={() => setAttempt(value => value + 1)}>Переподключиться</button></div>}
     {fullscreenError && <p className="cafe-fullscreen-error" role="status">{fullscreenError}</p>}

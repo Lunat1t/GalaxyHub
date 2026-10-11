@@ -5,6 +5,7 @@ import { PLAYER_COLORS } from '@/shared/cafe-map';
 import { supabaseConfig } from '@/lib/supabase/config';
 import { PROFILE_COLUMNS, type Profile } from '@/lib/profiles';
 import { preloadCafe } from './load-cafe';
+import { PwaInstall } from '@/components/pwa';
 
 const CafeWorld = dynamic(() => import('./cafe-world'), { ssr: false, loading: () => <p role="status">Загружаем Café…</p> });
 async function supabaseClient() {
@@ -68,8 +69,8 @@ export default function Cafe() {
     setName(name.trim()); setJoined('guest');
   }
   return <main className={joined ? 'cafe-page cafe-page-playing' : 'cafe-page'}>
-    {!joined && <><nav><a href="/">Вход и профиль</a></nav>
-    <h1>Café</h1><p>Войдите с сохранённым профилем или посетите Café как гость.</p></>}
+    {!joined && <><nav><a href="/">Вход и профиль</a><a href="/rooms">Комнаты проектов</a></nav>
+    <h1>Café</h1><p>Войдите с сохранённым профилем или посетите Café как гость.</p><PwaInstall /></>}
     {!joined ? <>
       <section><h2>Вход с аккаунтом</h2>
         {!ready ? <p role="status">Проверяем вход…</p> : !userId ? <p><a href="/">Войти или зарегистрироваться</a></p> : profile ? <>

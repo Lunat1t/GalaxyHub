@@ -5,6 +5,8 @@ import type { User } from '@supabase/supabase-js';
 import { getSupabaseBrowser } from '@/lib/supabase/browser';
 import { supabaseConfig } from '@/lib/supabase/config';
 import { AVATARS, PROFILE_COLUMNS, authErrorMessage, type Profile } from '@/lib/profiles';
+import { PwaInstall } from './pwa';
+import { safeAuthNext } from '@/shared/project-rooms';
 
 type Screen = 'login' | 'register' | 'forgot';
 type Draft = Omit<Profile, 'id' | 'interests'> & { interests: string };
@@ -48,6 +50,17 @@ export default function AuthProfile() {
   }, [configured]);
 
   const userId = user?.id;
+  useEffect(() => {
+    const next = safeAuthNext(new URLSearchParams(window.location.search).get('next'));
+    try {
+      if (next !== '/') sessionStorage.setItem('galaxy-return-to', JSON.stringify({ next, at: Date.now() }));
+      if (!userId) return;
+      const saved = JSON.parse(sessionStorage.getItem('galaxy-return-to') ?? 'null') as { next?: string; at?: number } | null;
+      const target = next !== '/' ? next : saved?.at && Date.now() - saved.at < 30 * 60 * 1000 ? safeAuthNext(saved.next ?? null) : '/';
+      sessionStorage.removeItem('galaxy-return-to');
+      if (target !== '/') window.location.assign(target);
+    } catch { if (userId && next !== '/') window.location.assign(next); }
+  }, [userId]);
   useEffect(() => {
     setProfile(null); setDraft(null); setPeople([]);
     if (!userId) return;
@@ -150,7 +163,8 @@ export default function AuthProfile() {
 
   return <main>
     <header><h1>Galaxy Hub</h1><p>Вход и профиль</p></header>
-    <nav><a href="/cafe">{user ? 'Войти в Café с профилем' : 'Открыть Café'}</a></nav>
+    <PwaInstall />
+    <nav><a href="/cafe">{user ? 'Войти в Café с профилем' : 'Открыть Café'}</a><a href="/rooms">Комнаты проектов</a></nav>
     {!configured ? <p role="alert">Подключение Supabase ещё не настроено. Добавьте адрес проекта и публичный ключ в настройки приложения.</p>
       : !ready ? <p role="status">Проверяем вход…</p> : <>
         {user ? <nav aria-label="Аккаунт"><span>{user.email}</span><button disabled={busy} onClick={logout}>Выйти</button></nav>

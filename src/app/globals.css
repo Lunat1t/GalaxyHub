@@ -38,6 +38,7 @@ button:disabled { cursor: wait; opacity: .6; }
 .cafe-hud .cafe-actions { pointer-events: auto; }
 .cafe-screen button, .cafe-info { color: white; background: #292929e8; border: 1px solid #aaa; }
 .cafe-screen :focus-visible { outline-color: white; }
+.cafe-actions a { color: white; }
 .cafe-info { position: absolute; left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); padding: 8px 12px; max-width: min(360px, calc(100% - 24px)); max-height: 45%; overflow: auto; }
 .cafe-info summary { cursor: pointer; }
 .cafe-info p { margin: 8px 0; }
@@ -84,3 +85,25 @@ button:disabled { cursor: wait; opacity: .6; }
   .cafe-chat-hint { display: none; }
   .cafe-chat-open ~ .cafe-controls { visibility: hidden; }
 }
+
+.pwa-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rooms-page, .project-page { max-width: 1100px; }
+.rooms-list, .project-members, .project-links { list-style: none; padding: 0; }
+.rooms-list li { padding: 12px 0; border-bottom: 1px solid #ccc; overflow-wrap: anywhere; }
+.rooms-list p { margin: 4px 0; }
+.project-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.project-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); gap: 24px; }
+.project-messages { height: min(50dvh, 450px); min-height: 180px; overflow-y: auto; border: 1px solid #ccc; padding: 12px; overscroll-behavior: contain; }
+.project-messages article { padding: 8px 0; overflow-wrap: anywhere; }
+.project-messages header { display: flex; gap: 8px; justify-content: space-between; align-items: baseline; }
+.project-messages time { font-size: 12px; color: #555; flex-shrink: 0; }
+.project-messages p { white-space: pre-wrap; margin: 4px 0; }
+.project-message-form { max-width: none; margin-top: 12px; }
+.project-members li, .project-links li { padding: 8px 0; overflow-wrap: anywhere; }
+.project-members button, .project-links button { display: block; margin-top: 4px; font-size: 13px; }
+.project-links small { display: block; }
+.room-settings { margin: 16px 0; padding: 12px; border: 1px solid #ccc; }
+.room-settings summary { cursor: pointer; }
+.room-settings > button, .room-settings > label { margin: 12px 0; }
+.room-settings input { font-size: 16px; }
+@media (max-width: 700px) { .project-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; } .project-messages header { flex-wrap: wrap; } }

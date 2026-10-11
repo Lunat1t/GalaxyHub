@@ -1,12 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase/server';
 import { supabaseConfig } from '@/lib/supabase/config';
+import { safeAuthNext } from '@/shared/project-rooms';
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const protocol = request.headers.get('x-forwarded-proto') === 'https' ? 'https:' : url.protocol;
   const origin = process.env.SITE_URL ?? `${protocol}//${request.headers.get('host') ?? url.host}`;
-  const next = url.searchParams.get('next') === '/reset-password' ? '/reset-password' : '/';
+  const next = safeAuthNext(url.searchParams.get('next'));
   if (!supabaseConfig()) return NextResponse.redirect(new URL('/?auth_error=configuration', origin));
   const supabase = await getSupabaseServer();
   const code = url.searchParams.get('code');
