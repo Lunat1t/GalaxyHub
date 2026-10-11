@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import type * as PhaserTypes from 'phaser';
 import type { Room } from 'colyseus.js';
 import { advancePlayer, canStandAt, CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS } from '@/shared/cafe-map';
+import { nearbyTable, channelName } from '@/shared/cafe-chat';
+import CafeChat from './cafe-chat';
 
 type Player = { name: string; color: number; x: number; y: number; moving: boolean };
 type Snapshot = { players: Map<string, Player> };
@@ -14,6 +16,9 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
   const screen = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const touch = useRef({ x: 0, y: 0 });
+  const typing = useRef(false);
+  const pauseInput = useRef(() => {});
+  const [chatRoom, setChatRoom] = useState<Room<Snapshot> | null>(null);
   const [status, setStatus] = useState('Подключаемся…');
   const [connected, setConnected] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
@@ -21,6 +26,11 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
   const [attempt, setAttempt] = useState(0);
   const [roomId, setRoomId] = useState('');
   const [fullscreenError, setFullscreenError] = useState('');
+
+  function onTyping(value: boolean) {
+    typing.current = value;
+    pauseInput.current();
+  }
 
   async function toggleFullscreen() {
     try {
@@ -37,7 +47,8 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
     let lastRoster = '';
     let pointerTarget: { x: number; y: number } | null = null;
     let resetInput = () => {};
-    setStatus('Подключаемся…'); setConnected(false); setMembers([]); setArea('Общий зал');
+    setStatus('Подключаемся…'); setConnected(false); setMembers([]); setArea('Общий зал'); setChatRoom(null);
+    typing.current = false;
     touch.current = { x: 0, y: 0 };
     const stop = () => {
       touch.current = { x: 0, y: 0 }; pointerTarget = null;
@@ -45,6 +56,7 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
       if (room?.connection.isOpen) room.send('move', { x: 0, y: 0 });
     };
     const visibility = () => { if (document.hidden) stop(); };
+    pauseInput.current = stop;
     window.addEventListener('blur', stop);
     document.addEventListener('visibilitychange', visibility);
 
@@ -118,14 +130,16 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
               avatar.generateTexture(`person-${index}`, 18, 24); avatar.destroy();
             });
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D') as Record<string, PhaserTypes.Input.Keyboard.Key>;
+            this.input.keyboard!.enabled = !typing.current;
             resetInput = () => {
               this.input.keyboard?.resetKeys(); this.previousInput = '0.00,0.00';
+              if (this.input.keyboard) this.input.keyboard.enabled = !typing.current;
               this.localMoving = false; this.idleSince = performance.now();
             };
-            this.input.on('pointerdown', (pointer: PhaserTypes.Input.Pointer) => { pointerTarget = { x: pointer.worldX, y: pointer.worldY }; });
+            this.input.on('pointerdown', (pointer: PhaserTypes.Input.Pointer) => { if (!typing.current) pointerTarget = { x: pointer.worldX, y: pointer.worldY }; });
             joined.onStateChange(state => { if (!disposed) this.applySnapshot(state); });
             this.applySnapshot(joined.state);
-            setConnected(true); setStatus('Вы в Café');
+            setConnected(true); setStatus('Вы в Café'); setChatRoom(joined);
           }
           private applySnapshot(state: Snapshot) {
             if (!state?.players) return;
@@ -150,8 +164,8 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
             if (key !== lastRoster) { lastRoster = key; setMembers(roster); }
             const me = state.players.get(joined.sessionId);
             if (me) {
-              const nearby = TABLES.find(table => Math.hypot(me.x - table.x - table.width / 2, me.y - table.y - table.height / 2) < 94);
-              setArea(nearby ? nearby.name : 'Общий зал');
+              const nearby = nearbyTable(me);
+              setArea(nearby ? channelName(nearby) : 'Общий зал');
             }
           }
           update(time: number, delta: number) {
@@ -165,7 +179,7 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
               visual.sprite.y = visual.target.moving ? Math.round(Math.sin(time / 90)) * 2 : 0;
             });
             const me = this.visuals.get(joined.sessionId);
-            if (!joined.connection.isOpen || document.hidden || !document.hasFocus()) {
+            if (!joined.connection.isOpen || document.hidden || !document.hasFocus() || typing.current) {
               if (me) me.sprite.y = 0;
               return;
             }
@@ -219,6 +233,7 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
     void start();
     return () => {
       disposed = true;
+      pauseInput.current = () => {};
       window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', visibility);
       touch.current = { x: 0, y: 0 };
       game?.destroy(true);
@@ -234,6 +249,7 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
     </header>
     {!connected && <div className="cafe-reconnect"><button onClick={() => setAttempt(value => value + 1)}>Переподключиться</button></div>}
     {fullscreenError && <p className="cafe-fullscreen-error" role="status">{fullscreenError}</p>}
+    {chatRoom && <CafeChat room={chatRoom} connected={connected} onTyping={onTyping} />}
     <details className="cafe-info"><summary>Участники и управление</summary>
       <p>Стрелки или WASD — движение. Нажмите на свободное место на карте или удерживайте кнопки.</p>
       <ul aria-label="Участники Café">{members.map(member => <li key={member.id}>{member.name}</li>)}</ul>
