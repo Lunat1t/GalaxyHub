@@ -5,14 +5,16 @@ import type { Room } from 'colyseus.js';
 import { advancePlayer, canStandAt, CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS } from '@/shared/cafe-map';
 import { nearbyTable, channelName } from '@/shared/cafe-chat';
 import CafeChat from './cafe-chat';
+import { getSupabaseBrowser } from '@/lib/supabase/browser';
+import { loadCafeRuntime } from './load-cafe';
 
-type Player = { name: string; color: number; x: number; y: number; moving: boolean };
+type Player = { name: string; color: number; x: number; y: number; moving: boolean; avatar: string; account: boolean };
 type Snapshot = { players: Map<string, Player> };
-type Member = { id: string; name: string };
+type Member = { id: string; name: string; avatar: string; account: boolean };
 type Visual = { container: PhaserTypes.GameObjects.Container; sprite: PhaserTypes.GameObjects.Image; label: PhaserTypes.GameObjects.Text; target: Player };
 const DIRECTIONS = [{ label: 'Вверх', x: 0, y: -1, glyph: '↑' }, { label: 'Влево', x: -1, y: 0, glyph: '←' }, { label: 'Вниз', x: 0, y: 1, glyph: '↓' }, { label: 'Вправо', x: 1, y: 0, glyph: '→' }];
 
-export default function CafeWorld({ name, color, onLeave }: { name: string; color: number; onLeave: () => void }) {
+export default function CafeWorld({ name, color, useAccount = false, onLeave }: { name: string; color: number; useAccount?: boolean; onLeave: () => void }) {
   const screen = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const touch = useRef({ x: 0, y: 0 });
@@ -47,6 +49,9 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
     let lastRoster = '';
     let pointerTarget: { x: number; y: number } | null = null;
     let resetInput = () => {};
+    let unsubscribeAuth = () => {};
+    let profileRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let refreshIdentity = () => {};
     setStatus('Подключаемся…'); setConnected(false); setMembers([]); setArea('Общий зал'); setChatRoom(null);
     typing.current = false;
     touch.current = { x: 0, y: 0 };
@@ -59,23 +64,52 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
     pauseInput.current = stop;
     window.addEventListener('blur', stop);
     document.addEventListener('visibilitychange', visibility);
+    const profileChanged = (event: StorageEvent) => {
+      if (useAccount && event.key === 'galaxy-profile-updated') {
+        if (profileRefreshTimer) clearTimeout(profileRefreshTimer);
+        profileRefreshTimer = setTimeout(() => refreshIdentity(), 3100);
+      }
+    };
+    window.addEventListener('storage', profileChanged);
 
     async function start() {
       try {
-        const [{ default: Phaser }, { Client }] = await Promise.all([import('phaser'), import('colyseus.js')]);
+        const [[{ default: Phaser }, { Client }], sessionResult] = await Promise.all([
+          loadCafeRuntime(), useAccount ? getSupabaseBrowser().auth.getSession() : Promise.resolve(null),
+        ]);
         if (disposed) return;
+        const token = sessionResult?.data.session?.access_token;
+        if (useAccount && (!token || sessionResult?.error)) throw new Error('Account session missing');
         const endpoint = process.env.NEXT_PUBLIC_WORLD_URL || window.location.origin;
         const client = new Client(endpoint);
-        const joined = await client.joinOrCreate<Snapshot>('cafe', { name, color });
+        const joined = await client.joinOrCreate<Snapshot>('cafe', { name, color, ...(useAccount ? { accessToken: token } : {}) });
         if (disposed) { await joined.leave(); return; }
         room = joined;
         setRoomId(joined.roomId);
-        joined.onLeave(() => {
-          if (!disposed) { setConnected(false); setMembers([]); setStatus('Соединение закрыто. Нажмите «Переподключиться».'); }
+        joined.onLeave(code => {
+          if (!disposed) { setConnected(false); setMembers([]); setStatus(code === 4001 ? 'Сессия истекла. Войдите снова или переподключитесь.' : 'Соединение закрыто. Нажмите «Переподключиться».'); }
         });
         joined.onError(() => {
           if (!disposed) { setConnected(false); setStatus('Ошибка связи с сервером мира. Попробуйте переподключиться.'); }
         });
+        if (useAccount) {
+          const supabase = getSupabaseBrowser();
+          const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            if (disposed || !joined.connection.isOpen) return;
+            if (event === 'SIGNED_OUT') void joined.leave();
+            else if (event === 'TOKEN_REFRESHED' && session) joined.send('identity:refresh', { accessToken: session.access_token });
+          });
+          unsubscribeAuth = () => subscription.unsubscribe();
+          refreshIdentity = () => {
+            void supabase.auth.getSession().then(({ data, error }) => {
+              if (disposed || !joined.connection.isOpen) return;
+              if (!error && data.session) joined.send('identity:refresh', { accessToken: data.session.access_token });
+              else setStatus('Сессия недоступна. Повторите вход в Café.');
+            }).catch(() => { if (!disposed) setStatus('Не удалось обновить профиль. Повторите вход в Café.'); });
+          };
+          joined.onMessage('identity:error', () => { if (!disposed) setStatus('Не удалось обновить профиль или сессию. Повторите вход в Café.'); });
+          joined.onMessage('identity:updated', () => { if (!disposed) setStatus('Вы в Café'); });
+        }
         class CafeScene extends Phaser.Scene {
           private visuals = new Map<string, Visual>();
           private lastSent = 0;
@@ -145,7 +179,7 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
             if (!state?.players) return;
             const present = new Set<string>(); const roster: Member[] = [];
             state.players.forEach((player, id) => {
-              present.add(id); roster.push({ id, name: player.name });
+              present.add(id); roster.push({ id, name: player.name, avatar: player.avatar, account: player.account });
               let visual = this.visuals.get(id);
               if (!visual) {
                 const shadow = this.add.ellipse(0, 0, 26, 10, 0x352b26, .25);
@@ -157,7 +191,10 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
                 visual = { container, sprite, label, target: player }; this.visuals.set(id, visual);
               }
               // Schema fields are prototype accessors, so explicitly copy coordinates.
-              visual.target = { name: player.name, color: player.color, x: player.x, y: player.y, moving: player.moving };
+              visual.target = { name: player.name, color: player.color, x: player.x, y: player.y, moving: player.moving, avatar: player.avatar, account: player.account };
+              visual.sprite.setTexture(`person-${player.color}`);
+              const label = `${player.avatar ? `${player.avatar} ` : ''}${player.name}${id === joined.sessionId ? ' (вы)' : ''}${player.account ? ' · аккаунт' : ' · гость'}`;
+              if (visual.label.text !== label) visual.label.setText(label);
             });
             this.visuals.forEach((visual, id) => { if (!present.has(id)) { visual.container.destroy(); this.visuals.delete(id); } });
             const key = JSON.stringify(roster);
@@ -227,19 +264,22 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
       } catch {
         game?.destroy(true);
         if (room?.connection.isOpen) await room.leave().catch(() => {});
-        if (!disposed) { setConnected(false); setStatus('Не удалось подключиться к серверу мира. Проверьте, что он запущен, и повторите попытку.'); }
+        if (!disposed) { setConnected(false); setStatus(useAccount ? 'Не удалось войти с профилем. Проверьте вход в аккаунт и связь с Supabase, затем повторите попытку.' : 'Не удалось подключиться к серверу мира. Повторите попытку.'); }
       }
     }
     void start();
     return () => {
       disposed = true;
       pauseInput.current = () => {};
+      unsubscribeAuth();
+      if (profileRefreshTimer) clearTimeout(profileRefreshTimer);
+      window.removeEventListener('storage', profileChanged);
       window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', visibility);
       touch.current = { x: 0, y: 0 };
       game?.destroy(true);
       if (room?.connection.isOpen) void room.leave().catch(() => {});
     };
-  }, [name, color, attempt]);
+  }, [name, color, useAccount, attempt]);
 
   return <div ref={screen} className="cafe-screen">
     <div ref={host} className="cafe-canvas" role="img" aria-label="Карта Café с аватарами участников" />
@@ -252,7 +292,7 @@ export default function CafeWorld({ name, color, onLeave }: { name: string; colo
     {chatRoom && <CafeChat room={chatRoom} connected={connected} onTyping={onTyping} />}
     <details className="cafe-info"><summary>Участники и управление</summary>
       <p>Стрелки или WASD — движение. Нажмите на свободное место на карте или удерживайте кнопки.</p>
-      <ul aria-label="Участники Café">{members.map(member => <li key={member.id}>{member.name}</li>)}</ul>
+      <ul aria-label="Участники Café">{members.map(member => <li key={member.id}>{member.avatar} {member.name} · {member.account ? 'аккаунт' : 'гость'}</li>)}</ul>
       <small>Комната: {roomId}</small>
     </details>
     <div className="cafe-controls" aria-label="Управление аватаром">{DIRECTIONS.map(direction => <button key={direction.label} aria-label={direction.label} disabled={!connected}

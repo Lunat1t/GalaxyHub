@@ -130,6 +130,7 @@ export default function AuthProfile() {
       if (error || !data) { setError('Не удалось сохранить профиль. Проверьте соединение и повторите попытку.'); return; }
       const saved = data as Profile;
       setProfile(saved); setDraft(toDraft(saved)); setNotice('Профиль сохранён.');
+      try { localStorage.setItem('galaxy-profile-updated', String(Date.now())); } catch { /* Storage may be unavailable; the profile is already saved. */ }
       const list = await client.from('profiles').select(PROFILE_COLUMNS).eq('visible', true).order('name').limit(100);
       if (list.error) { setPeople([]); setError('Профиль сохранён, но список участников не обновился. Повторите загрузку.'); }
       else setPeople((list.data ?? []) as Profile[]);
@@ -149,7 +150,7 @@ export default function AuthProfile() {
 
   return <main>
     <header><h1>Galaxy Hub</h1><p>Вход и профиль</p></header>
-    <nav><a href="/cafe">Войти в Café как гость</a></nav>
+    <nav><a href="/cafe">{user ? 'Войти в Café с профилем' : 'Открыть Café'}</a></nav>
     {!configured ? <p role="alert">Подключение Supabase ещё не настроено. Добавьте адрес проекта и публичный ключ в настройки приложения.</p>
       : !ready ? <p role="status">Проверяем вход…</p> : <>
         {user ? <nav aria-label="Аккаунт"><span>{user.email}</span><button disabled={busy} onClick={logout}>Выйти</button></nav>
@@ -179,7 +180,7 @@ export default function AuthProfile() {
               <fieldset><legend>Аватар</legend><div className="avatars">{AVATARS.map((avatar, index) => <label key={avatar}><input type="radio" name="avatar" checked={draft.avatar === avatar} onChange={() => setDraft({ ...draft, avatar })} /><span role="img" aria-label={['Человек', 'Разработчица', 'Разработчик', 'Робот', 'Кот', 'Ракета'][index]}>{avatar}</span></label>)}</div></fieldset>
               <label>О себе<textarea rows={3} maxLength={300} value={draft.bio} onChange={e => setDraft({ ...draft, bio: e.target.value })} /></label>
               <label>Интересы<input maxLength={410} aria-describedby="interests-help" placeholder="Например: TypeScript, игры, музыка" value={draft.interests} onChange={e => setDraft({ ...draft, interests: e.target.value })} /></label><small id="interests-help">Через запятую. До 10 интересов.</small>
-              <fieldset><legend>Видимость</legend><label className="checkbox"><input type="checkbox" checked={draft.visible} onChange={e => setDraft({ ...draft, visible: e.target.checked })} />Показывать меня другим участникам</label><p>Скрытый профиль виден только вам. Настройка применяется после сохранения.</p></fieldset>
+              <fieldset><legend>Видимость</legend><label className="checkbox"><input type="checkbox" checked={draft.visible} onChange={e => setDraft({ ...draft, visible: e.target.checked })} />Показывать мой профиль другим участникам</label><p>Скрытый профиль виден только вам. В Café персонаж остаётся виден, но имя и аватар профиля заменяются нейтральными. Ранее отправленные сообщения сохраняют имя на момент отправки. Настройка применяется после сохранения.</p></fieldset>
               <button type="submit">{busy ? 'Сохраняем…' : 'Сохранить профиль'}</button>
             </fieldset></form>
           </section>

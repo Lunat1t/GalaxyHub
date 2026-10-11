@@ -10,6 +10,8 @@ export type ChatMessage = {
   channel: ChatChannel;
   authorId: string;
   authorName: string;
+  authorAvatar: string;
+  account: boolean;
   text: string;
   sentAt: number;
 };

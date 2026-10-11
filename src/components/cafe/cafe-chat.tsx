@@ -108,7 +108,7 @@ export default function CafeChat({ room, connected, onTyping }: { room: ChatConn
       }}>
         {!history.length && <p className="cafe-chat-empty">Начните разговор.</p>}
         {history.map(message => <div className="cafe-chat-message" key={message.id}>
-          <div><strong>{message.authorName}{message.authorId === room.sessionId ? ' (вы)' : ''}</strong><time dateTime={new Date(message.sentAt).toISOString()}>{new Date(message.sentAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</time></div>
+          <div><strong>{message.authorAvatar && `${message.authorAvatar} `}{message.authorName}{message.authorId === room.sessionId ? ' (вы)' : ''}{message.account ? ' · аккаунт' : ' · гость'}</strong><time dateTime={new Date(message.sentAt).toISOString()}>{new Date(message.sentAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</time></div>
           <p>{message.text}</p>
         </div>)}
       </div>

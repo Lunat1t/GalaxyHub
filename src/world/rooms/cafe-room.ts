@@ -3,6 +3,7 @@ import { Schema, MapSchema, defineTypes } from '@colyseus/schema';
 import { advancePlayer, PLAYER_COLORS } from '../../shared/cafe-map';
 import { randomUUID } from 'node:crypto';
 import { CHAT_HISTORY_LIMIT, CHAT_MAX_LENGTH, nearbyTable, type ChatChannel, type ChatMessage, type TableChannel } from '../../shared/cafe-chat';
+import { authenticateCafe, type CafeIdentity } from '../cafe-identity';
 
 // Schema fields use accessors; tsconfig disables define-style class fields.
 class CafePlayer extends Schema {
@@ -11,8 +12,10 @@ class CafePlayer extends Schema {
   x = 400;
   y = 460;
   moving = false;
+  avatar = '';
+  account = false;
 }
-defineTypes(CafePlayer, { name: 'string', color: 'uint8', x: 'float32', y: 'float32', moving: 'boolean' });
+defineTypes(CafePlayer, { name: 'string', color: 'uint8', x: 'float32', y: 'float32', moving: 'boolean', avatar: 'string', account: 'boolean' });
 class CafeState extends Schema { players = new MapSchema<CafePlayer>(); }
 defineTypes(CafeState, { players: { map: CafePlayer } });
 
@@ -24,10 +27,44 @@ export class CafeRoom extends Room<CafeState> {
   private chatHistory = new Map<ChatChannel, ChatMessage[]>();
   private lastChat = new Map<string, number>();
   private chatZones = new Map<string, TableChannel | null>();
+  private identities = new Map<string, CafeIdentity>();
+  private refreshing = new Set<string>();
+  private lastRefresh = new Map<string, number>();
+
+  async onAuth(_client: Client, options: unknown) {
+    const value = options && typeof options === 'object' ? options as Record<string, unknown> : {};
+    return authenticateCafe(value.accessToken);
+  }
+
+  private applyIdentity(client: Client, identity: CafeIdentity) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || !identity.account) return;
+    player.account = true;
+    player.name = identity.visible ? identity.name!.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 50) || 'Участник' : `Участник ${client.sessionId.slice(-4)}`;
+    player.avatar = identity.visible ? identity.avatar! : '';
+    player.color = identity.visible ? identity.color! : 0;
+  }
 
   onCreate() {
     this.setState(new CafeState());
+    this.setSeatReservationTime(30);
     this.setPatchRate(33);
+    this.onMessage('identity:refresh', async (client, payload: unknown) => {
+      const current = this.identities.get(client.sessionId);
+      if (!current?.account || this.refreshing.has(client.sessionId)) return;
+      const now = Date.now();
+      if (now - (this.lastRefresh.get(client.sessionId) ?? 0) < 3000) return;
+      this.lastRefresh.set(client.sessionId, now); this.refreshing.add(client.sessionId);
+      try {
+        const value = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+        const identity = await authenticateCafe(value.accessToken);
+        if (!identity.account || identity.userId !== current.userId) { client.leave(4001); return; }
+        if (!this.state.players.has(client.sessionId)) return;
+        this.identities.set(client.sessionId, identity); this.applyIdentity(client, identity);
+        client.send('identity:updated');
+      } catch { client.send('identity:error', { message: 'Не удалось обновить профиль или сессию. Повторите вход в Café.' }); }
+      finally { this.refreshing.delete(client.sessionId); }
+    });
     this.onMessage('chat:sync', client => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
@@ -49,7 +86,7 @@ export class CafeRoom extends Room<CafeState> {
       const now = Date.now();
       if (now - (this.lastChat.get(client.sessionId) ?? 0) < 750) return reject('Подождите немного перед следующим сообщением.');
       this.lastChat.set(client.sessionId, now);
-      const message: ChatMessage = { id: randomUUID(), requestId, channel: channel as ChatChannel, authorId: client.sessionId, authorName: player.name, text, sentAt: now };
+      const message: ChatMessage = { id: randomUUID(), requestId, channel: channel as ChatChannel, authorId: client.sessionId, authorName: player.name, authorAvatar: player.avatar, account: player.account, text, sentAt: now };
       const history = this.chatHistory.get(message.channel) ?? [];
       history.push(message);
       this.chatHistory.set(message.channel, history.slice(-CHAT_HISTORY_LIMIT));
@@ -74,6 +111,8 @@ export class CafeRoom extends Room<CafeState> {
     this.setSimulationInterval(delta => {
       const now = Date.now();
       this.state.players.forEach((player, id) => {
+        const identity = this.identities.get(id);
+        if (identity?.account && identity.expiresAt! <= now) { this.clients.find(client => client.sessionId === id)?.leave(4001); return; }
         const input = this.inputs.get(id);
         const active = input && now - input.receivedAt < 250;
         const oldX = player.x, oldY = player.y;
@@ -89,7 +128,7 @@ export class CafeRoom extends Room<CafeState> {
     }, 1000 / 60);
   }
 
-  onJoin(client: Client, options: unknown) {
+  onJoin(client: Client, options: unknown, identity: CafeIdentity) {
     const value = options && typeof options === 'object' ? options as Record<string, unknown> : {};
     const player = new CafePlayer();
     if (typeof value.name === 'string') player.name = value.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 24) || 'Гость';
@@ -101,6 +140,8 @@ export class CafeRoom extends Room<CafeState> {
       if (!occupied) { player.x = x; player.y = y; break; }
     }
     this.state.players.set(client.sessionId, player);
+    this.identities.set(client.sessionId, identity);
+    this.applyIdentity(client, identity);
     this.chatZones.set(client.sessionId, nearbyTable(player));
   }
   onLeave(client: Client) {
@@ -109,5 +150,8 @@ export class CafeRoom extends Room<CafeState> {
     this.lastMessage.delete(client.sessionId);
     this.lastChat.delete(client.sessionId);
     this.chatZones.delete(client.sessionId);
+    this.identities.delete(client.sessionId);
+    this.refreshing.delete(client.sessionId);
+    this.lastRefresh.delete(client.sessionId);
   }
 }
