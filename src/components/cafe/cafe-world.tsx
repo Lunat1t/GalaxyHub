@@ -47,7 +47,6 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
     let game: PhaserTypes.Game | undefined;
     let room: Room<Snapshot> | undefined;
     let lastRoster = '';
-    let pointerTarget: { x: number; y: number } | null = null;
     let resetInput = () => {};
     let unsubscribeAuth = () => {};
     let profileRefreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -56,7 +55,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
     typing.current = false;
     touch.current = { x: 0, y: 0 };
     const stop = () => {
-      touch.current = { x: 0, y: 0 }; pointerTarget = null;
+      touch.current = { x: 0, y: 0 };
       resetInput();
       if (room?.connection.isOpen) room.send('move', { x: 0, y: 0 });
     };
@@ -170,7 +169,6 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
               if (this.input.keyboard) this.input.keyboard.enabled = !typing.current;
               this.localMoving = false; this.idleSince = performance.now();
             };
-            this.input.on('pointerdown', (pointer: PhaserTypes.Input.Pointer) => { if (!typing.current) pointerTarget = { x: pointer.worldX, y: pointer.worldY }; });
             joined.onStateChange(state => { if (!disposed) this.applySnapshot(state); });
             this.applySnapshot(joined.state);
             setConnected(true); setStatus('Вы в Café'); setChatRoom(joined);
@@ -222,15 +220,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             }
             let x = Number(this.keys.RIGHT.isDown || this.keys.D.isDown) - Number(this.keys.LEFT.isDown || this.keys.A.isDown);
             let y = Number(this.keys.DOWN.isDown || this.keys.S.isDown) - Number(this.keys.UP.isDown || this.keys.W.isDown);
-            if (x || y || touch.current.x || touch.current.y) { pointerTarget = null; x = x || touch.current.x; y = y || touch.current.y; }
-            else if (pointerTarget) {
-              if (me) {
-                const dx = pointerTarget.x - me.container.x, dy = pointerTarget.y - me.container.y;
-                const distance = Math.hypot(dx, dy);
-                if (distance < 8) pointerTarget = null;
-                else { x = dx / distance; y = dy / distance; }
-              }
-            }
+            x = x || touch.current.x; y = y || touch.current.y;
             const moving = Boolean(x || y);
             if (moving) this.idleSince = 0;
             else if (this.localMoving || !this.idleSince) this.idleSince = performance.now();
@@ -291,7 +281,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
     {fullscreenError && <p className="cafe-fullscreen-error" role="status">{fullscreenError}</p>}
     {chatRoom && <CafeChat room={chatRoom} connected={connected} onTyping={onTyping} />}
     <details className="cafe-info"><summary>Участники и управление</summary>
-      <p>Стрелки или WASD — движение. Нажмите на свободное место на карте или удерживайте кнопки.</p>
+      <p>Стрелки или WASD — движение. На телефоне удерживайте кнопки направления.</p>
       <ul aria-label="Участники Café">{members.map(member => <li key={member.id}>{member.avatar} {member.name} · {member.account ? 'аккаунт' : 'гость'}</li>)}</ul>
       <small>Комната: {roomId}</small>
     </details>
