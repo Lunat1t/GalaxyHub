@@ -1,6 +1,7 @@
 import { Room, type Client } from '@colyseus/core';
 import { Schema, MapSchema, defineTypes } from '@colyseus/schema';
 import { advancePlayer, PLAYER_COLORS } from '../../shared/cafe-map';
+import { MAX_PENDING_STEPS, MOVEMENT_STEP_MS, movementStep, type MovementFrame } from '../../shared/cafe-movement';
 import { randomUUID } from 'node:crypto';
 import { CHAT_HISTORY_LIMIT, CHAT_MAX_LENGTH, nearbyTable, type ChatChannel, type ChatMessage, type TableChannel } from '../../shared/cafe-chat';
 import { authenticateCafe, type CafeIdentity } from '../cafe-identity';
@@ -14,8 +15,9 @@ class CafePlayer extends Schema {
   moving = false;
   avatar = '';
   account = false;
+  inputSeq = 0;
 }
-defineTypes(CafePlayer, { name: 'string', color: 'uint8', x: 'float32', y: 'float32', moving: 'boolean', avatar: 'string', account: 'boolean' });
+defineTypes(CafePlayer, { name: 'string', color: 'uint8', x: 'float32', y: 'float32', moving: 'boolean', avatar: 'string', account: 'boolean', inputSeq: 'uint32' });
 class CafeState extends Schema { players = new MapSchema<CafePlayer>(); }
 defineTypes(CafeState, { players: { map: CafePlayer } });
 
@@ -30,6 +32,7 @@ export class CafeRoom extends Room<CafeState> {
   private identities = new Map<string, CafeIdentity>();
   private refreshing = new Set<string>();
   private lastRefresh = new Map<string, number>();
+  private movementQueues = new Map<string, { received: number; frames: MovementFrame[] }>();
 
   async onAuth(_client: Client, options: unknown) {
     const value = options && typeof options === 'object' ? options as Record<string, unknown> : {};
@@ -98,6 +101,22 @@ export class CafeRoom extends Room<CafeState> {
     this.onMessage('move', (client, payload: unknown) => {
       if (!payload || typeof payload !== 'object') return;
       const value = payload as Record<string, unknown>;
+      const queue = this.movementQueues.get(client.sessionId);
+      if (queue) {
+        if (!Array.isArray(value.frames) || !value.frames.length || value.frames.length > 16) return;
+        if (queue.frames.length + value.frames.length > MAX_PENDING_STEPS) { client.leave(4002); return; }
+        const frames: MovementFrame[] = [];
+        let expected = queue.received + 1;
+        for (const input of value.frames) {
+          if (!input || typeof input !== 'object' || input.seq !== expected || expected > 0xffffffff ||
+            typeof input.x !== 'number' || typeof input.y !== 'number' || !Number.isFinite(input.x) || !Number.isFinite(input.y) ||
+            Math.abs(input.x) > 1 || Math.abs(input.y) > 1) return;
+          frames.push({ seq: expected++, x: input.x, y: input.y });
+        }
+        queue.received = expected - 1;
+        queue.frames.push(...frames);
+        return;
+      }
       if (typeof value.x !== 'number' || typeof value.y !== 'number' || !Number.isFinite(value.x) || !Number.isFinite(value.y)) return;
       const now = Date.now();
       const length = Math.hypot(value.x, value.y);
@@ -108,28 +127,39 @@ export class CafeRoom extends Room<CafeState> {
       this.lastMessage.set(client.sessionId, now);
       this.inputs.set(client.sessionId, { x, y, receivedAt: now });
     });
+    let elapsed = 0;
     this.setSimulationInterval(delta => {
-      const now = Date.now();
-      this.state.players.forEach((player, id) => {
-        const identity = this.identities.get(id);
-        if (identity?.account && identity.expiresAt! <= now) { this.clients.find(client => client.sessionId === id)?.leave(4001); return; }
-        const input = this.inputs.get(id);
-        const active = input && now - input.receivedAt < 250;
-        const oldX = player.x, oldY = player.y;
-        const next = advancePlayer(player, active ? input : { x: 0, y: 0 }, delta);
-        player.x = next.x; player.y = next.y;
-        player.moving = Math.hypot(player.x - oldX, player.y - oldY) > 0.01;
-        const channel = nearbyTable(player);
-        if (this.chatZones.get(id) !== channel) {
-          this.chatZones.set(id, channel);
-          this.clients.find(client => client.sessionId === id)?.send('chat:zone', { channel, messages: channel ? this.chatHistory.get(channel) ?? [] : [] });
-        }
-      });
+      elapsed += Math.min(Math.max(delta, 0), 250);
+      while (elapsed >= MOVEMENT_STEP_MS) {
+        elapsed -= MOVEMENT_STEP_MS;
+        const now = Date.now();
+        this.state.players.forEach((player, id) => {
+          const identity = this.identities.get(id);
+          if (identity?.account && identity.expiresAt! <= now) { this.clients.find(client => client.sessionId === id)?.leave(4001); return; }
+          const queue = this.movementQueues.get(id);
+          const frame = queue?.frames.shift();
+          const input = this.inputs.get(id);
+          const active = input && now - input.receivedAt < 250;
+          const oldX = player.x, oldY = player.y;
+          // Consume at most one client step per server step. A client cannot speed
+          // up by flooding the input queue. An empty queue never repeats movement.
+          const next = queue ? (frame ? movementStep(player, frame) : player) : advancePlayer(player, active ? input : { x: 0, y: 0 }, MOVEMENT_STEP_MS);
+          player.x = next.x; player.y = next.y;
+          if (frame) player.inputSeq = frame.seq;
+          player.moving = Math.hypot(player.x - oldX, player.y - oldY) > 0.01;
+          const channel = nearbyTable(player);
+          if (this.chatZones.get(id) !== channel) {
+            this.chatZones.set(id, channel);
+            this.clients.find(client => client.sessionId === id)?.send('chat:zone', { channel, messages: channel ? this.chatHistory.get(channel) ?? [] : [] });
+          }
+        });
+      }
     }, 1000 / 60);
   }
 
   onJoin(client: Client, options: unknown, identity: CafeIdentity) {
     const value = options && typeof options === 'object' ? options as Record<string, unknown> : {};
+    if (value.movementVersion === 2) this.movementQueues.set(client.sessionId, { received: 0, frames: [] });
     const player = new CafePlayer();
     if (typeof value.name === 'string') player.name = value.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 24) || 'Гость';
     if (typeof value.color === 'number' && Number.isInteger(value.color) && value.color >= 0 && value.color < PLAYER_COLORS.length) player.color = value.color;
@@ -147,6 +177,7 @@ export class CafeRoom extends Room<CafeState> {
   onLeave(client: Client) {
     this.state.players.delete(client.sessionId);
     this.inputs.delete(client.sessionId);
+    this.movementQueues.delete(client.sessionId);
     this.lastMessage.delete(client.sessionId);
     this.lastChat.delete(client.sessionId);
     this.chatZones.delete(client.sessionId);

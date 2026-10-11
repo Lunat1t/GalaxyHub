@@ -2,13 +2,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as PhaserTypes from 'phaser';
 import type { Room } from 'colyseus.js';
-import { advancePlayer, canStandAt, CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS, PLAYER_RADIUS, WALK_SPEED } from '@/shared/cafe-map';
+import { CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS } from '@/shared/cafe-map';
+import { MovementPrediction, MOVEMENT_BATCH_MS, MOVEMENT_STEP_MS, type MovementFrame } from '@/shared/cafe-movement';
 import { nearbyTable, channelName } from '@/shared/cafe-chat';
 import CafeChat from './cafe-chat';
 import { getSupabaseBrowser } from '@/lib/supabase/browser';
 import { loadCafeRuntime } from './load-cafe';
 
-type Player = { name: string; color: number; x: number; y: number; moving: boolean; avatar: string; account: boolean };
+type Player = { name: string; color: number; x: number; y: number; moving: boolean; avatar: string; account: boolean; inputSeq: number };
 type Snapshot = { players: Map<string, Player> };
 type Member = { id: string; name: string; avatar: string; account: boolean };
 type Visual = { container: PhaserTypes.GameObjects.Container; sprite: PhaserTypes.GameObjects.Image; label: PhaserTypes.GameObjects.Text; target: Player };
@@ -57,7 +58,6 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
     const stop = () => {
       touch.current = { x: 0, y: 0 };
       resetInput();
-      if (room?.connection.isOpen) room.send('move', { x: 0, y: 0 });
     };
     const visibility = () => { if (document.hidden) stop(); };
     pauseInput.current = stop;
@@ -81,7 +81,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
         if (useAccount && (!token || sessionResult?.error)) throw new Error('Account session missing');
         const endpoint = process.env.NEXT_PUBLIC_WORLD_URL || window.location.origin;
         const client = new Client(endpoint);
-        const joined = await client.joinOrCreate<Snapshot>('cafe', { name, color, ...(useAccount ? { accessToken: token } : {}) });
+        const joined = await client.joinOrCreate<Snapshot>('cafe', { name, color, movementVersion: 2, ...(useAccount ? { accessToken: token } : {}) });
         if (disposed) { await joined.leave(); return; }
         room = joined;
         setRoomId(joined.roomId);
@@ -112,9 +112,10 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
         class CafeScene extends Phaser.Scene {
           private visuals = new Map<string, Visual>();
           private lastSent = 0;
-          private previousInput = '';
-          private localMoving = false;
-          private idleSince = 0;
+          private prediction?: MovementPrediction;
+          private unsent: MovementFrame[] = [];
+          private elapsed = 0;
+          private lastDirection = '0,0';
           private keys!: Record<string, PhaserTypes.Input.Keyboard.Key>;
           constructor() { super('Cafe'); }
           create() {
@@ -165,9 +166,11 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D') as Record<string, PhaserTypes.Input.Keyboard.Key>;
             this.input.keyboard!.enabled = !typing.current;
             resetInput = () => {
-              this.input.keyboard?.resetKeys(); this.previousInput = '0.00,0.00';
+              this.input.keyboard?.resetKeys();
               if (this.input.keyboard) this.input.keyboard.enabled = !typing.current;
-              this.localMoving = false; this.idleSince = performance.now();
+              this.elapsed = 0;
+              // Retain unacknowledged steps, then explicitly append release.
+              this.predictInput({ x: 0, y: 0 }); this.flushInput();
             };
             joined.onStateChange(state => { if (!disposed) this.applySnapshot(state); });
             this.applySnapshot(joined.state);
@@ -189,7 +192,12 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
                 visual = { container, sprite, label, target: player }; this.visuals.set(id, visual);
               }
               // Schema fields are prototype accessors, so explicitly copy coordinates.
-              visual.target = { name: player.name, color: player.color, x: player.x, y: player.y, moving: player.moving, avatar: player.avatar, account: player.account };
+              visual.target = { name: player.name, color: player.color, x: player.x, y: player.y, moving: player.moving, avatar: player.avatar, account: player.account, inputSeq: player.inputSeq };
+              if (id === joined.sessionId) {
+                if (!this.prediction) this.prediction = new MovementPrediction(player);
+                this.prediction.reconcile(player, player.inputSeq);
+                visual.container.setPosition(this.prediction.position.x, this.prediction.position.y);
+              }
               visual.sprite.setTexture(`person-${player.color}`);
               const label = `${player.avatar ? `${player.avatar} ` : ''}${player.name}${id === joined.sessionId ? ' (вы)' : ''}${player.account ? ' · аккаунт' : ' · гость'}`;
               if (visual.label.text !== label) visual.label.setText(label);
@@ -203,6 +211,18 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
               setArea(nearby ? channelName(nearby) : 'Общий зал');
             }
           }
+          private predictInput(input: { x: number; y: number }) {
+            if (!this.prediction) return;
+            const frame = this.prediction.step(input);
+            if (!frame) { if (joined.connection.isOpen) void joined.leave(); return; }
+            this.unsent.push(frame);
+            const me = this.visuals.get(joined.sessionId);
+            if (me) me.container.setPosition(this.prediction.position.x, this.prediction.position.y);
+          }
+          private flushInput() {
+            if (!joined.connection.isOpen) return;
+            while (this.unsent.length) joined.send('move', { frames: this.unsent.splice(0, 16) });
+          }
           update(time: number, delta: number) {
             if (!this.keys) return;
             this.visuals.forEach((visual, id) => {
@@ -215,6 +235,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             });
             const me = this.visuals.get(joined.sessionId);
             if (!joined.connection.isOpen || document.hidden || !document.hasFocus() || typing.current) {
+              this.elapsed = 0;
               if (me) me.sprite.y = 0;
               return;
             }
@@ -222,33 +243,20 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             let y = Number(this.keys.DOWN.isDown || this.keys.S.isDown) - Number(this.keys.UP.isDown || this.keys.W.isDown);
             x = x || touch.current.x; y = y || touch.current.y;
             const moving = Boolean(x || y);
-            if (moving) this.idleSince = 0;
-            else if (this.localMoving || !this.idleSince) this.idleSince = performance.now();
-            this.localMoving = moving;
+            // Same fixed step on client and server, independent of render FPS.
+            this.elapsed += Math.min(Math.max(delta, 0), 250);
+            const before = this.unsent.length;
+            while (this.elapsed >= MOVEMENT_STEP_MS) {
+              this.elapsed -= MOVEMENT_STEP_MS;
+              this.predictInput({ x, y });
+            }
+            const direction = `${x},${y}`;
+            if (this.unsent.length > before && (direction !== this.lastDirection || time - this.lastSent >= MOVEMENT_BATCH_MS)) {
+              this.flushInput(); this.lastSent = time; this.lastDirection = direction;
+            }
             if (me) {
-              // Predict locally on the first frame; the server remains authoritative.
-              const next = advancePlayer(me.container, { x, y }, delta);
-              me.container.setPosition(next.x, next.y);
-              const error = Math.hypot(me.target.x - next.x, me.target.y - next.y);
-              const settled = !moving && !me.target.moving && performance.now() - this.idleSince > 250;
-              // During held movement the latest snapshot is behind local prediction by
-              // network latency. A 32px threshold pulled the player backwards after
-              // ~210ms, causing a pause until the first movement snapshot arrived.
-              // Allow 750ms of travel while moving; still reconcile larger divergence
-              // and converge to the authoritative position after movement stops.
-              const correctionThreshold = moving ? WALK_SPEED * .75 + PLAYER_RADIUS : 32;
-              if (error > correctionThreshold || settled) {
-                const blend = 1 - Math.exp(-Math.min(delta, 50) / 100);
-                const corrected = { x: next.x + (me.target.x - next.x) * blend, y: next.y + (me.target.y - next.y) * blend };
-                if (canStandAt(corrected.x, corrected.y)) me.container.setPosition(corrected.x, corrected.y);
-                else if (error > 64) me.container.setPosition(me.target.x, me.target.y);
-              }
               me.container.setDepth(me.container.y);
               me.sprite.y = moving ? Math.round(Math.sin(time / 90)) * 2 : 0;
-            }
-            const key = `${x.toFixed(2)},${y.toFixed(2)}`;
-            if (key !== this.previousInput || (moving && time - this.lastSent >= 50)) {
-              joined.send('move', { x, y }); this.lastSent = time; this.previousInput = key;
             }
           }
         }
