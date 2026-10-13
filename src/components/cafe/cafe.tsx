@@ -45,7 +45,9 @@ export default function Cafe() {
 
   useEffect(() => {
     setProfile(null); setError('');
-    if (!userId) return;
+    // The world server loads and validates the account profile on join.
+    // Keep this browser query only for the manual entry form.
+    if (!userId || joined || (new URLSearchParams(window.location.search).get('from') === 'campus' && !campusEntry.current)) return;
     let alive = true;
     void (async () => {
       try {
@@ -57,7 +59,7 @@ export default function Cafe() {
       } catch { if (alive) setError('Нет связи с Supabase. Повторите загрузку.'); }
     })();
     return () => { alive = false; };
-  }, [userId, refresh]);
+  }, [userId, refresh, joined]);
 
   useEffect(() => {
     const update = (event: StorageEvent) => { if (event.key === 'galaxy-profile-updated') setRefresh(value => value + 1); };
@@ -72,7 +74,6 @@ export default function Cafe() {
   }
   useEffect(() => {
     if (campusEntry.current || !ready || new URLSearchParams(window.location.search).get('from') !== 'campus') return;
-    if (userId && !profile) return;
     campusEntry.current = true;
     if (userId) { setJoined('account'); return; }
     let guest = 'Гость';

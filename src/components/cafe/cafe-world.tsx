@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import CampusMap from '../campus/campus-map';
+import { mountWorld } from '../campus/world-runtime';
 import type * as PhaserTypes from 'phaser';
 import type { Room } from 'colyseus.js';
 import { CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS } from '@/shared/cafe-map';
@@ -75,7 +76,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
 
   useEffect(() => {
     let disposed = false;
-    let game: PhaserTypes.Game | undefined;
+    let lease: Awaited<ReturnType<typeof mountWorld>> = null;
     let room: Room<Snapshot> | undefined;
     let lastRoster = '';
     let resetInput = () => {};
@@ -155,9 +156,10 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
           private exitNear = false;
           private keys!: Record<string, PhaserTypes.Input.Keyboard.Key>;
           constructor() { super('Cafe'); }
-          preload() { this.load.atlas('black-cat', '/sprites/black-cat-v1.png', '/sprites/black-cat-v1.json'); }
+          preload() { if (!this.textures.exists('black-cat')) this.load.atlas('black-cat', '/sprites/black-cat-v1.png', '/sprites/black-cat-v1.json'); }
           create() {
             if (!this.textures.exists('black-cat')) { setStatus('Не удалось загрузить персонажа. Нажмите «Переподключиться».'); return; }
+            this.cameras.main.setBackgroundColor('#775d49');
             const fitCamera = () => {
               const { width, height } = this.scale;
               // Fit the room on large screens and keep avatars readable in portrait.
@@ -208,7 +210,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             g.fillStyle(0xeee1c6).fillRect(352, 512, 96, 32);
             this.add.text(400, 525, 'ВХОД', { fontFamily: 'monospace', fontSize: '12px', color: '#35271e' }).setOrigin(.5);
             for (const direction of ['front', 'left', 'right', 'back']) {
-              this.anims.create({ key: `cat-walk-${direction}`, frames: [0, 1, 2, 3].map(frame => ({ key: 'black-cat', frame: `${direction}-${frame}` })), frameRate: 8, repeat: -1 });
+              if (!this.anims.exists(`cat-walk-${direction}`)) this.anims.create({ key: `cat-walk-${direction}`, frames: [0, 1, 2, 3].map(frame => ({ key: 'black-cat', frame: `${direction}-${frame}` })), frameRate: 8, repeat: -1 });
             }
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D,E') as Record<string, PhaserTypes.Input.Keyboard.Key>;
             this.input.keyboard!.enabled = !typing.current;
@@ -323,12 +325,9 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
           }
         }
         if (!host.current || disposed) { await joined.leave(); return; }
-        game = new Phaser.Game({ type: Phaser.CANVAS, width: host.current.clientWidth, height: host.current.clientHeight, parent: host.current, pixelArt: true, backgroundColor: '#775d49', scale: { mode: Phaser.Scale.RESIZE }, scene: CafeScene, audio: { noAudio: true } });
-        const resize = new ResizeObserver(() => game?.scale.refresh());
-        resize.observe(host.current);
-        game.events.once('destroy', () => resize.disconnect());
+        lease = await mountWorld(Phaser, host.current, new CafeScene(), () => disposed);
       } catch {
-        game?.destroy(true);
+        lease?.release();
         if (room?.connection.isOpen) await room.leave().catch(() => {});
         if (!disposed) { setConnected(false); setStatus(useAccount ? 'Не удалось войти с профилем. Проверьте вход в аккаунт и связь с Supabase, затем повторите попытку.' : 'Не удалось подключиться к серверу мира. Повторите попытку.'); }
       }
@@ -343,7 +342,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
       window.removeEventListener('galaxy-safety-changed', refreshSafety); window.removeEventListener('storage', safetyStorage);
       window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', visibility);
       touch.current = pointers.current.clear();
-      game?.destroy(true);
+      lease?.release();
       if (room?.connection.isOpen) void room.leave().catch(() => {});
     };
   }, [name, color, useAccount, attempt, router]);

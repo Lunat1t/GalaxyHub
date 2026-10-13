@@ -6,6 +6,8 @@ import type * as PhaserTypes from 'phaser';
 import CampusMap from './campus-map';
 import { CAMPUS_DOOR, CAMPUS_HEIGHT, CAMPUS_ROOMS, CAMPUS_WIDTH, nearCampusDoor, type PrototypeRoomId } from '@/shared/campus-map';
 import { PointerDirections } from '@/shared/cafe-controls';
+import { loadWorldRuntime, mountWorld } from './world-runtime';
+import { preloadCafe } from '../cafe/load-cafe';
 
 const DIRECTIONS = [{ label: 'Вверх', x: 0, y: -1, glyph: '↑' }, { label: 'Влево', x: -1, y: 0, glyph: '←' }, { label: 'Вниз', x: 0, y: 1, glyph: '↓' }, { label: 'Вправо', x: 1, y: 0, glyph: '→' }];
 
@@ -26,7 +28,7 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
 
   useEffect(() => {
     let disposed = false;
-    let game: PhaserTypes.Game | undefined;
+    let lease: Awaited<ReturnType<typeof mountWorld>> = null;
     const stop = () => { pointers.current.clear(); resetInput.current(); };
     const viewport = window.visualViewport;
     const resizeViewport = () => {
@@ -40,7 +42,7 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
     viewport?.addEventListener('scroll', resizeViewport);
     async function start() {
       try {
-        const Phaser = (await import('phaser')).default;
+        const Phaser = await loadWorldRuntime();
         if (disposed || !host.current) return;
         let name = 'Гость';
         try { name = sessionStorage.getItem('galaxy-campus-name')?.slice(0, 24) || name; } catch { /* Private mode can disable storage. */ }
@@ -53,11 +55,12 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
           private doorNear = false;
           constructor() { super('Campus'); }
           preload() {
-            this.load.atlas('black-cat', '/sprites/black-cat-v1.png', '/sprites/black-cat-v1.json');
+            if (!this.textures.exists('black-cat')) this.load.atlas('black-cat', '/sprites/black-cat-v1.png', '/sprites/black-cat-v1.json');
             this.load.on('loaderror', () => { if (!disposed) setStatus('Не удалось загрузить персонажа. Повторите загрузку.'); });
           }
           create() {
             if (disposed || !this.textures.exists('black-cat')) return;
+            this.cameras.main.setBackgroundColor('#8b918d');
             const fit = () => {
               const { width, height } = this.scale;
               const zoom = Math.max(.85, Math.min(width / CAMPUS_WIDTH, height / CAMPUS_HEIGHT));
@@ -80,7 +83,7 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
             this.add.text(CAMPUS_DOOR.x, 78, room === 'hall' ? 'Café' : 'Холл', { fontFamily: 'Arial', fontSize: '14px', color: '#333333' }).setOrigin(.5);
             this.add.text(400, 250, currentRoom.name, { fontFamily: 'Arial', fontSize: '22px', color: '#999e99' }).setOrigin(.5);
             this.add.text(400, 278, room === 'hall' ? 'Место появления' : 'Пустой макет комнаты', { fontFamily: 'Arial', fontSize: '13px', color: '#999e99' }).setOrigin(.5);
-            for (const direction of ['front', 'left', 'right', 'back']) this.anims.create({ key: `campus-walk-${direction}`, frames: [0, 1, 2, 3].map(frame => ({ key: 'black-cat', frame: `${direction}-${frame}` })), frameRate: 8, repeat: -1 });
+            for (const direction of ['front', 'left', 'right', 'back']) if (!this.anims.exists(`campus-walk-${direction}`)) this.anims.create({ key: `campus-walk-${direction}`, frames: [0, 1, 2, 3].map(frame => ({ key: 'black-cat', frame: `${direction}-${frame}` })), frameRate: 8, repeat: -1 });
             const shadow = this.add.ellipse(0, 0, 26, 10, 0x353535, .25);
             const ring = this.add.ellipse(0, 0, 30, 12).setStrokeStyle(2, 0x284f80);
             this.cat = this.add.sprite(0, 0, 'black-cat', 'front-0').setScale(.18).setOrigin(.5, 316 / 336);
@@ -90,6 +93,8 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D,E') as Record<string, PhaserTypes.Input.Keyboard.Key>;
             resetInput.current = () => { Object.values(this.keys ?? {}).forEach(key => key.reset()); pointers.current.clear(); };
             setStatus(room === 'hall' ? 'Вы в центральном холле' : 'Макет комнаты');
+            // Warm the route and multiplayer code after the playable hall is ready.
+            if (room === 'hall') { router.prefetch('/cafe?from=campus'); preloadCafe(); }
           }
           update(_time: number, delta: number) {
             if (!this.keys || disposed) return;
@@ -111,19 +116,16 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
             if (Phaser.Input.Keyboard.JustDown(this.keys.E) && nearby && !paused.current) enterDoor();
           }
         }
-        game = new Phaser.Game({ type: Phaser.CANVAS, parent: host.current, width: host.current.clientWidth, height: host.current.clientHeight, pixelArt: true, backgroundColor: '#8b918d', scale: { mode: Phaser.Scale.RESIZE }, scene: CampusScene, audio: { noAudio: true } });
-        const observer = new ResizeObserver(() => game?.scale.refresh());
-        observer.observe(host.current);
-        game.events.once('destroy', () => observer.disconnect());
+        lease = await mountWorld(Phaser, host.current, new CampusScene(), () => disposed);
       } catch { if (!disposed) setStatus('Не удалось открыть комнату. Повторите загрузку.'); }
     }
     setNearDoor(false); setStatus('Загружаем комнату…'); void start();
     return () => {
-      disposed = true; stop(); resetInput.current = () => {}; game?.destroy(true);
+      disposed = true; stop(); resetInput.current = () => {}; lease?.release();
       window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', stop);
       viewport?.removeEventListener('resize', resizeViewport); viewport?.removeEventListener('scroll', resizeViewport);
     };
-  }, [room, currentRoom.name, enterDoor, attempt]);
+  }, [room, currentRoom.name, enterDoor, attempt, router]);
 
   async function fullscreen() {
     try { if (document.fullscreenElement) await document.exitFullscreen(); else await screen.current?.requestFullscreen(); setFullscreenError(''); }
