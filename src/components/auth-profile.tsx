@@ -181,7 +181,7 @@ export default function AuthProfile() {
   return <main>
     <header><h1>Galaxy Hub</h1><p>Вход и профиль</p></header>
     <PwaInstall />
-    <nav><a href="/cafe">{user ? 'Войти в Café с профилем' : 'Открыть Café'}</a><a href="/rooms">Комнаты проектов</a></nav>
+    <nav><a href="/campus">Войти в кампус · Центральный холл</a><a href="/cafe">{user ? 'Войти в Café с профилем' : 'Открыть Café'}</a><a href="/rooms">Комнаты проектов</a></nav>
     {!configured ? <p role="alert">Подключение Supabase ещё не настроено. Добавьте адрес проекта и публичный ключ в настройки приложения.</p>
       : !ready ? <p role="status">Проверяем вход…</p> : <>
         {user ? <nav aria-label="Аккаунт"><span>{user.email}</span><button disabled={busy} onClick={logout}>Выйти</button></nav>

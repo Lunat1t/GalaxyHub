@@ -22,6 +22,7 @@ export default function Cafe() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const campusEntry = useRef(false);
   const configured = Boolean(supabaseConfig());
 
   useEffect(() => {
@@ -66,10 +67,20 @@ export default function Cafe() {
   function enter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) return;
+    try { sessionStorage.setItem('galaxy-campus-name', name.trim()); } catch { /* Storage can be unavailable. */ }
     setName(name.trim()); setJoined('guest');
   }
+  useEffect(() => {
+    if (campusEntry.current || !ready || new URLSearchParams(window.location.search).get('from') !== 'campus') return;
+    if (userId && !profile) return;
+    campusEntry.current = true;
+    if (userId) { setJoined('account'); return; }
+    let guest = 'Гость';
+    try { guest = sessionStorage.getItem('galaxy-campus-name')?.trim().slice(0, 24) || guest; } catch { /* Storage can be unavailable. */ }
+    setName(guest); setJoined('guest');
+  }, [ready, userId, profile]);
   return <main className={joined ? 'cafe-page cafe-page-playing' : 'cafe-page'}>
-    {!joined && <><nav><a href="/">Вход и профиль</a><a href="/rooms">Комнаты проектов</a></nav>
+    {!joined && <><nav><a href="/campus/hall">Центральный холл</a><a href="/">Вход и профиль</a><a href="/rooms">Комнаты проектов</a></nav>
     <h1>Café</h1><p>Войдите с сохранённым профилем или посетите Café как гость.</p><PwaInstall /></>}
     {!joined ? <>
       <section><h2>Вход с аккаунтом</h2>

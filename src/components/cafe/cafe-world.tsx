@@ -1,5 +1,8 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import CampusMap from '../campus/campus-map';
 import type * as PhaserTypes from 'phaser';
 import type { Room } from 'colyseus.js';
 import { CAFE_HEIGHT, CAFE_WIDTH, COUNTER, TABLES, PLAYER_COLORS } from '@/shared/cafe-map';
@@ -19,12 +22,15 @@ type Visual = { container: PhaserTypes.GameObjects.Container; sprite: PhaserType
 const DIRECTIONS = [{ label: 'Вверх', x: 0, y: -1, glyph: '↑' }, { label: 'Влево', x: -1, y: 0, glyph: '←' }, { label: 'Вниз', x: 0, y: 1, glyph: '↓' }, { label: 'Вправо', x: 1, y: 0, glyph: '→' }];
 
 export default function CafeWorld({ name, color, useAccount = false, onLeave }: { name: string; color: number; useAccount?: boolean; onLeave: () => void }) {
+  const router = useRouter();
   const screen = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const touch = useRef({ x: 0, y: 0 });
   const pointers = useRef(new PointerDirections());
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const typing = useRef(false);
+  const chatTyping = useRef(false);
+  const mapOpen = useRef(false);
   const pauseInput = useRef(() => {});
   const [chatRoom, setChatRoom] = useState<Room<Snapshot> | null>(null);
   const [status, setStatus] = useState('Подключаемся…');
@@ -35,6 +41,11 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
   const [roomId, setRoomId] = useState('');
   const [fullscreenError, setFullscreenError] = useState('');
   const [safety, setSafety] = useState<CafeSafetyState>({ blocked: [] });
+  const [nearExit, setNearExit] = useState(false);
+  const mapChanged = useCallback((open: boolean) => {
+    mapOpen.current = open; typing.current = open || chatTyping.current;
+    pauseInput.current();
+  }, []);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -50,7 +61,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
   function releasePointer(id: number) { touch.current = pointers.current.release(id); }
 
   function onTyping(value: boolean) {
-    typing.current = value;
+    chatTyping.current = value; typing.current = value || mapOpen.current;
     pauseInput.current();
   }
 
@@ -141,6 +152,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
           private unsent: MovementFrame[] = [];
           private elapsed = 0;
           private lastDirection = '0,0';
+          private exitNear = false;
           private keys!: Record<string, PhaserTypes.Input.Keyboard.Key>;
           constructor() { super('Cafe'); }
           preload() { this.load.atlas('black-cat', '/sprites/black-cat-v1.png', '/sprites/black-cat-v1.json'); }
@@ -198,7 +210,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             for (const direction of ['front', 'left', 'right', 'back']) {
               this.anims.create({ key: `cat-walk-${direction}`, frames: [0, 1, 2, 3].map(frame => ({ key: 'black-cat', frame: `${direction}-${frame}` })), frameRate: 8, repeat: -1 });
             }
-            this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D') as Record<string, PhaserTypes.Input.Keyboard.Key>;
+            this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D,E') as Record<string, PhaserTypes.Input.Keyboard.Key>;
             this.input.keyboard!.enabled = !typing.current;
             resetInput = () => {
               this.input.keyboard?.resetKeys();
@@ -281,11 +293,14 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
               this.animateVisual(visual, dx, dy, Math.hypot(dx, dy) > .2);
             });
             const me = this.visuals.get(joined.sessionId);
+            const nearby = Boolean(me && Math.hypot(me.container.x - 400, me.container.y - 512) < 55);
+            if (nearby !== this.exitNear) { this.exitNear = nearby; setNearExit(nearby); }
             if (!joined.connection.isOpen || document.hidden || !document.hasFocus() || typing.current) {
               this.elapsed = 0;
               if (me) this.animateVisual(me, 0, 0, false);
               return;
             }
+            if (Phaser.Input.Keyboard.JustDown(this.keys.E) && nearby) { router.push('/campus/hall?from=cafe'); return; }
             let x = Number(this.keys.RIGHT.isDown || this.keys.D.isDown) - Number(this.keys.LEFT.isDown || this.keys.A.isDown);
             let y = Number(this.keys.DOWN.isDown || this.keys.S.isDown) - Number(this.keys.UP.isDown || this.keys.W.isDown);
             x = x || touch.current.x; y = y || touch.current.y;
@@ -331,16 +346,17 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
       game?.destroy(true);
       if (room?.connection.isOpen) void room.leave().catch(() => {});
     };
-  }, [name, color, useAccount, attempt]);
+  }, [name, color, useAccount, attempt, router]);
 
   return <div ref={screen} className={`cafe-screen${keyboardOpen ? ' cafe-keyboard' : ''}`}>
     <div ref={host} className="cafe-canvas" role="img" aria-label="Карта Café с аватарами участников" />
     <header className="cafe-hud">
       <div><strong>Café</strong><span role="status">{status}</span>{connected && <span>В Café: {members.length} · {area}</span>}</div>
-      <div className="cafe-actions"><button onClick={toggleFullscreen}>Полный экран</button><a href="/rooms">Комнаты проектов</a><button onClick={onLeave}>Выйти из Café</button></div>
+      <div className="cafe-actions"><CampusMap current="cafe" onOpenChange={mapChanged} /><button onClick={toggleFullscreen}>Полный экран</button><Link href="/campus/hall?from=cafe">Центральный холл</Link><Link href="/rooms">Комнаты проектов</Link><button onClick={onLeave}>Выйти из Café</button></div>
     </header>
     {!connected && <div className="cafe-reconnect"><button onClick={() => setAttempt(value => value + 1)}>Переподключиться</button></div>}
     {fullscreenError && <p className="cafe-fullscreen-error" role="status">{fullscreenError}</p>}
+    {connected && nearExit && <div className="campus-door-action"><Link href="/campus/hall?from=cafe">Выйти в холл · E</Link></div>}
     {chatRoom && <CafeChat room={chatRoom} connected={connected} onTyping={onTyping} safety={safety} account={useAccount} />}
     <details className="cafe-info"><summary>Участники и управление</summary>
       <p>Стрелки или WASD — движение. На телефоне удерживайте кнопки направления.</p>

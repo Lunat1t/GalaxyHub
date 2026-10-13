@@ -120,5 +120,19 @@ button:disabled { cursor: wait; opacity: .6; }
 .cafe-keyboard .cafe-chat-hint, .cafe-keyboard .cafe-controls, .cafe-keyboard .cafe-info { display: none; }
 .cafe-info ul { padding-left: 18px; overflow-wrap: anywhere; }
 .cafe-chat-tabs { flex-wrap: wrap; }
+
+.campus-screen { background: #8b918d; }
+.campus-map { width: min(720px, calc(100% - 24px)); max-height: calc(100dvh - 32px); overflow: auto; overscroll-behavior: contain; padding: 20px; border: 1px solid #777; color: #222; background: #fafafa; }
+.campus-map::backdrop { background: #0009; }
+.campus-map header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.campus-map header p { margin: 4px 0; }
+.campus-map-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.campus-map .campus-map-grid a { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid #aaa; color: #222; background: white; text-decoration: none; overflow-wrap: anywhere; }
+.campus-map-grid a[aria-current=location] { outline: 2px solid #284f80; background: #e9edf1; }
+.campus-map-grid span, .campus-map-grid small { font-size: 13px; }
+.campus-door-action { position: absolute; bottom: max(156px, calc(env(safe-area-inset-bottom) + 140px)); left: 50%; transform: translateX(-50%); z-index: 1; width: max-content; max-width: calc(100% - 24px); }
+.campus-door-action a { display: block; padding: 8px 12px; border: 1px solid #aaa; background: #292929e8; color: white; }
+@media (max-width: 600px) { .campus-map-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .campus-map { padding: 12px; } }
+@media (max-height: 420px) { .campus-door-action { bottom: 76px; } }
 .safety-actions select { min-width: 0; width: 100%; font: inherit; font-size: 16px; }
 @media (pointer: coarse) { .safety-actions button { min-height: 44px; } }
