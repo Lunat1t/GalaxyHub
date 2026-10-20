@@ -21,7 +21,7 @@ export async function mountWorld(Phaser: typeof PhaserTypes, host: HTMLElement, 
     root.style.cssText = 'width:100%;height:100%;overflow:hidden';
     host.appendChild(root);
     boot = new Promise<PhaserTypes.Game>(resolve => {
-      const game = new Phaser.Game({ type: Phaser.CANVAS, parent: root, width: host.clientWidth, height: host.clientHeight, pixelArt: true, backgroundColor: '#8b918d', scale: { mode: Phaser.Scale.RESIZE }, scene: [], audio: { noAudio: true } });
+      const game = new Phaser.Game({ type: Phaser.CANVAS, parent: root, width: host.clientWidth, height: host.clientHeight, pixelArt: true, backgroundColor: '#3c4747', scale: { mode: Phaser.Scale.RESIZE }, scene: [], audio: { noAudio: true } });
       game.events.once(Phaser.Core.Events.READY, () => resolve(game));
     }).catch(error => { boot = undefined; root?.remove(); root = undefined; throw error; });
   }

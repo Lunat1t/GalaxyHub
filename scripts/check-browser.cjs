@@ -97,7 +97,7 @@ async function main() {
       const manifest = await (await context.request.get(`${origin}/manifest.webmanifest`)).json(); assert.equal(manifest.display, 'standalone');
       await page.goto(`${origin}/cafe`); await page.evaluate(async () => { await navigator.serviceWorker.ready; });
       const cached = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async key => (await (await caches.open(key)).keys()).map(r => new URL(r.url).pathname)))).flat());
-      assert(cached.every(path => path.startsWith('/_next/static/') || path.startsWith('/app-icons/') || path === '/offline.html' || ['/sprites/black-cat-v1.png', '/sprites/black-cat-v1.json'].includes(path)), 'Never cache accounts, API or page HTML');
+      assert(cached.every(path => path.startsWith('/_next/static/') || path.startsWith('/app-icons/') || path === '/offline.html' || ['/sprites/lavender-doll-v1.png', '/sprites/lavender-doll-v1.json'].includes(path)), 'Never cache accounts, API or page HTML');
       await context.setOffline(true); await page.goto(`${origin}/rooms`); assert(await page.getByText(/Нет соединения/, { exact: true }).count()); await context.setOffline(false);
       results.push({ mobile, loading, cachedEntries: cached.length }); await context.close();
     }

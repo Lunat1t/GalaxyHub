@@ -1,9 +1,9 @@
 /* Cache public immutable resources only. Account data and page HTML stay online. */
-const CACHE = 'galaxy-static-v1.1.1';
+const CACHE = 'galaxy-static-v1.1.2';
 const OFFLINE = '/offline.html';
 const STATIC = [OFFLINE, '/app-icons/icon-192.png', '/app-icons/icon-512.png'];
 const MAX_ENTRIES = 160;
-const SPRITES = ['/sprites/black-cat-v1.png', '/sprites/black-cat-v1.json'];
+const SPRITES = ['/sprites/lavender-doll-v1.png', '/sprites/lavender-doll-v1.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(STATIC)));
