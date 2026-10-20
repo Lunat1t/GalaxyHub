@@ -1,10 +1,13 @@
 export type AvatarDirection = 'front' | 'left' | 'right' | 'back';
 
 /** Presentation only. None of these offsets belong in the room's world state. */
+export type FootPose = { travel: number; lift: number };
+
 export type AvatarPose = {
+  feet: readonly [FootPose, FootPose];
   direction: AvatarDirection;
   frameIndex: number;
-  /** Includes the short final step after world movement has stopped. */
+  /** Includes the short fade to rest after world movement has stopped. */
   moving: boolean;
   blink: boolean;
   offsetX: number;
@@ -14,7 +17,7 @@ export type AvatarPose = {
   scaleY: number;
 };
 
-const PIXELS_PER_FRAME = 15;
+const PIXELS_PER_FRAME = 6; // 48 world pixels per complete stride.
 // Rendering can run faster than the world's fixed simulation tick.
 const STILL_GRACE_MS = 40;
 const SETTLE_MS = 160;
@@ -32,8 +35,8 @@ export class AvatarMotion {
   private stillElapsed = 0;
   private lastHorizontal = 0;
   private settleElapsed = 0;
-  private settleFrom = 0;
-  private settleTo = 0;
+  private strideWeight = 0;
+  private stopWeight = 0;
   private randomState: number;
   private blinkAt: number;
   private offsetX = 0;
@@ -88,16 +91,9 @@ export class AvatarMotion {
         // Do not inject extra gait phase into render frames between simulation ticks.
         // Keep the last lean too, instead of pulsing it toward zero on those frames.
         if (this.stillElapsed > STILL_GRACE_MS) {
-          if (this.settleElapsed === 0) {
-            this.settleFrom = this.phase;
-            this.settleTo = Math.ceil(this.phase / 4) * 4;
-          }
+          if (this.settleElapsed === 0) this.stopWeight = this.strideWeight;
           this.settleElapsed = Math.min(SETTLE_MS, this.stillElapsed - STILL_GRACE_MS);
-          const progress = this.settleElapsed / SETTLE_MS;
-          // Ease into the next planted foot, then use the matching neutral idle pose.
-          const eased = 1 - Math.pow(1 - progress, 2);
-          this.phase = this.settleFrom + (this.settleTo - this.settleFrom) * eased;
-          horizontal = this.lastHorizontal * (1 - progress);
+          horizontal = this.lastHorizontal * (1 - this.settleElapsed / SETTLE_MS);
           if (this.settleElapsed >= SETTLE_MS - 1e-7) {
             this.phase = 0;
             this.settled = true;
@@ -108,11 +104,19 @@ export class AvatarMotion {
     }
 
     const moving = walking || !this.settled;
+    // Fade the limbs back to rest without advancing a stationary character's feet.
+    if (this.settleElapsed > 0) {
+      const t = this.settleElapsed / SETTLE_MS;
+      this.strideWeight = this.stopWeight * (1 - t * t * (3 - 2 * t));
+    } else {
+      this.strideWeight += ((moving ? 1 : 0) - this.strideWeight) * (1 - Math.exp(-dt / 45));
+    }
+    if (!moving) this.strideWeight = 0;
     const gait = this.phase * Math.PI / 4;
     const breath = Math.sin(this.clock / 3800 * TAU + this.breathPhase);
-    const targetX = moving ? Math.sin(gait) * .45 : 0;
-    const targetY = moving ? -Math.abs(Math.sin(gait)) * 1.1 : 0;
-    const targetRotation = moving ? horizontal * 1.1 + Math.sin(gait) * .4 : 0;
+    const targetX = moving ? Math.sin(gait) * .18 * this.strideWeight : 0;
+    const targetY = moving ? -(1 - Math.cos(gait * 2)) * .22 * this.strideWeight : 0;
+    const targetRotation = moving ? (horizontal * .3 + Math.sin(gait) * .15) * this.strideWeight : 0;
     const targetScaleX = moving ? 1 : 1 - breath * .0015;
     const targetScaleY = moving ? 1 : 1 + breath * .004;
     const blend = 1 - Math.exp(-dt / 70);
@@ -125,7 +129,18 @@ export class AvatarMotion {
     const blinking = this.clock >= this.blinkAt && this.clock < this.blinkAt + 140;
     if (this.clock >= this.blinkAt + 140) this.blinkAt = this.clock + 3000 + this.random() * 3500;
 
+    const foot = (offset: number): FootPose => {
+      const t = (this.phase / 8 + .3 + offset) % 1;
+      // The planted foot travels backward at a constant rate. The other foot
+      // clears the floor and returns forward with zero vertical speed at contact.
+      const stance = t < .5;
+      const u = stance ? t * 2 : (t - .5) * 2;
+      const travel = stance ? 1 - 2 * u : -1 + 2 * (u * u * (3 - 2 * u));
+      return { travel: travel * 12 * this.strideWeight,
+        lift: stance ? 0 : Math.sin(Math.PI * u) ** 2 * 3.2 * this.strideWeight };
+    };
     return {
+      feet: [foot(0), foot(.5)],
       direction: this.direction,
       frameIndex: moving ? Math.floor(this.phase + 1e-8) % 8 : 0,
       moving,

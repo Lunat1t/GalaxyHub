@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { AvatarMotion, type AvatarPose } from '../src/shared/avatar-motion';
 
 function finite(pose: AvatarPose) {
+  for (const foot of pose.feet) {
+    assert(Number.isFinite(foot.travel) && Math.abs(foot.travel) <= 16);
+    assert(Number.isFinite(foot.lift) && foot.lift >= 0 && foot.lift <= 3.2);
+  }
   for (const key of ['frameIndex', 'offsetX', 'offsetY', 'rotation', 'scaleX', 'scaleY'] as const) assert(Number.isFinite(pose[key]), key);
   assert(Number.isInteger(pose.frameIndex) && pose.frameIndex >= 0 && pose.frameIndex <= 7);
   assert(Math.abs(pose.offsetX) < 1 && Math.abs(pose.offsetY) < 1.5);
@@ -19,8 +23,8 @@ for (const fps of [20, 30, 60, 144]) {
     finite(pose);
   }
   assert.equal(pose.direction, 'right');
-  // 150 px = ten frames, modulo the eight-frame cycle.
-  assert.equal(pose.frameIndex, 2, `Distance cadence at ${fps} fps`);
+  // 150 px / 6 px per phase, modulo the eight-phase cycle.
+  assert.equal(pose.frameIndex, 1, `Distance cadence at ${fps} fps`);
   assert(pose.moving);
 }
 
@@ -35,7 +39,7 @@ for (const fps of [20, 30, 60, 144, 240]) {
     pose = sampled.update(ticks * 2.5, 0, 1000 / fps);
     finite(pose);
   }
-  assert.equal(pose.frameIndex, 2, `Fixed-60-Hz simulation cadence at ${fps} render fps`);
+  assert.equal(pose.frameIndex, 1, `Fixed-60-Hz simulation cadence at ${fps} render fps`);
   assert.equal(pose.direction, 'right');
   assert(pose.moving);
   // A real wall/stop still settles after the 40 ms grace plus the final step.
@@ -97,6 +101,44 @@ for (let i = 0; i < 1200; i++) {
 }
 assert(blinks > 0 && blinks < 80 && otherBlinks > 0 && independent, 'Blinking is brief, sparse and seeded per avatar');
 assert(breaths.size > 20, 'Idle breathing changes subtly over time');
+
+// Once the onset has faded in, stance cancels world displacement exactly.
+const planted = new AvatarMotion(8);
+planted.update(0, 0, 16);
+let previous!: AvatarPose;
+let plantSamples = 0;
+for (let x = 1; x <= 256; x++) {
+  const current = planted.update(x, 0, 16);
+  if (x > 100) for (const index of [0, 1] as const) {
+    const a = previous.feet[index], b = current.feet[index];
+    if (a.lift === 0 && b.lift === 0) {
+      assert(Math.abs(1 + b.travel - a.travel) < .001, 'Planted foot cancels travel rather than skating');
+      plantSamples++;
+    }
+    assert(Math.abs(b.travel - a.travel) < 1.6, 'Continuous foot path across cycle boundaries');
+  }
+  previous = current;
+}
+assert(plantSamples > 100);
+for (let i = 0; i < 20; i++) previous = planted.update(256, 0, 16);
+assert(previous.feet.every(foot => foot.travel === 0 && foot.lift === 0), 'Both feet return to rest after stopping');
+
+// Every stop phase must reach rest without a visible last-frame snap.
+for (let distance = 1; distance <= 48; distance++) {
+  const stop = new AvatarMotion();
+  stop.update(0, 0, 16);
+  for (let cycle = 0; cycle < 4; cycle++) for (let x = 1; x <= 48; x++) stop.update(cycle * 48 + x, 0, 16);
+  stop.update(192 + distance, 0, 16);
+  let last = stop.update(192 + distance, 0, 16);
+  while (last.moving) {
+    const next = stop.update(192 + distance, 0, 16);
+    if (!next.moving) for (const index of [0, 1] as const) {
+      assert(Math.abs(last.feet[index].travel) < .1, 'No last-frame foot snap');
+      assert(last.feet[index].lift < .1);
+    }
+    last = next;
+  }
+}
 for (const values of [[NaN, 0, 16], [0, Infinity, 16], [0, 0, NaN], [0, 0, -10], [0, 0, Infinity]]) finite(idle.update(...values as [number, number, number]));
 
 console.log('Avatar motion checks passed: cadence, directions, settling, blocked movement, teleport, reduced motion, idle and invalid inputs.');

@@ -1,5 +1,5 @@
 /* Cache public immutable resources only. Account data and page HTML stay online. */
-const CACHE = 'galaxy-static-v1.1.3';
+const CACHE = 'galaxy-static-v1.1.4';
 const OFFLINE = '/offline.html';
 const STATIC = [OFFLINE, '/app-icons/icon-192.png', '/app-icons/icon-512.png'];
 const MAX_ENTRIES = 160;

@@ -41,15 +41,15 @@ async function main() {
     first.send('move', { x: 'invalid', y: null });
     await pause(100);
     assert.equal(a.x, stoppedX, 'Invalid movement must be ignored');
-    await move(first, -1, 0, 1300);
+    await move(first, -1, 0, 195000 / WALK_SPEED);
     await pause(400);
     assert(canStandAt(a.x, a.y), 'Player must remain inside walkable space');
     assert(a.x >= 44, 'Player must not cross the wall');
     assert(!canStandAt(220, 280), 'Table area must block movement');
-    await move(first, 1, 0, 1200);
+    await move(first, 1, 0, 180000 / WALK_SPEED);
     await pause(350);
     assert(a.x > 180 && a.x < 300, 'Test participant must be under the first table');
-    await move(first, 0, -1, 1200);
+    await move(first, 0, -1, 180000 / WALK_SPEED);
     await pause(350);
     assert(a.y >= 336, 'Player must not walk through the first table');
     const secondId = second.sessionId;

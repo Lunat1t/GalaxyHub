@@ -7,6 +7,7 @@ import CampusMap from './campus-map';
 import { CAMPUS_DOOR, CAMPUS_HEIGHT, CAMPUS_ROOMS, CAMPUS_WIDTH, nearCampusDoor, type PrototypeRoomId } from '@/shared/campus-map';
 import { AVATAR_TEXTURE, AVATAR_IMAGE, AVATAR_ATLAS, AVATAR_SCALE, AVATAR_ORIGIN_Y, AVATAR_DEPTH } from '@/shared/avatar-sprite';
 import { PointerDirections } from '@/shared/cafe-controls';
+import { WALK_SPEED } from '@/shared/cafe-map';
 import { loadWorldRuntime, mountWorld } from './world-runtime';
 import { AvatarAnimation } from './avatar-animation';
 import { applyRetroAtmosphere } from './retro-atmosphere';
@@ -121,7 +122,7 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
               x = (Number(this.keys.RIGHT.isDown || this.keys.D.isDown) - Number(this.keys.LEFT.isDown || this.keys.A.isDown)) || touch.x;
               y = (Number(this.keys.DOWN.isDown || this.keys.S.isDown) - Number(this.keys.UP.isDown || this.keys.W.isDown)) || touch.y;
             }
-            const length = Math.max(1, Math.hypot(x, y)), distance = 150 * Math.min(delta, 50) / 1000;
+            const length = Math.max(1, Math.hypot(x, y)), distance = WALK_SPEED * Math.min(delta, 50) / 1000;
             this.avatar.x = Phaser.Math.Clamp(this.avatar.x + x / length * distance, 44, 756);
             this.avatar.y = Phaser.Math.Clamp(this.avatar.y + y / length * distance, 92, 500);
             this.animation.update(delta);
