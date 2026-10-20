@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Galaxy Hub",
-  description: "Кампус для знакомств, встреч с друзьями и исследования пространства.",
+  description: "Ваша личная комната с котом.",
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, title: 'Galaxy Hub', statusBarStyle: 'black-translucent' },
   icons: { apple: '/app-icons/icon-192.png', icon: '/app-icons/icon-192.png' },

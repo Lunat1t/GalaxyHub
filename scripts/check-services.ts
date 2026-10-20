@@ -1,12 +1,11 @@
-import "dotenv/config";
-import { Client } from "colyseus.js";
+import 'dotenv/config';
+import assert from 'node:assert/strict';
+
 async function main() {
-  const response = await fetch(`${process.env.WEB_SERVER_URL ?? "http://127.0.0.1:3000"}/api/health`, { signal: AbortSignal.timeout(15000) });
-  console.log("Service status:", await response.json());
-  if (!response.ok) throw new Error("Some services unavailable");
-  const client = new Client(process.env.WORLD_SERVER_URL ?? "http://127.0.0.1:2567");
-  const room = await client.joinOrCreate("lobby");
-  console.log("World connection established.");
-  await room.leave();
+  const response = await fetch(`${process.env.WEB_SERVER_URL ?? 'http://127.0.0.1:3000'}/api/health`, { signal: AbortSignal.timeout(15000) });
+  const status = await response.json();
+  assert(response.ok && status.status === 'ok');
+  assert(status.services.web && status.services.personalRoom);
+  console.log('Personal room web service is healthy.');
 }
-main().catch((error: unknown) => { console.error(error instanceof Error ? error.message : "Service check failed"); process.exitCode = 1; });
+main().catch((error: unknown) => { console.error(error instanceof Error ? error.message : 'Service check failed'); process.exitCode = 1; });

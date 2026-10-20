@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const protocol = request.headers.get('x-forwarded-proto') === 'https' ? 'https:' : url.protocol;
   const origin = process.env.SITE_URL ?? `${protocol}//${request.headers.get('host') ?? url.host}`;
   const next = safeAuthNext(url.searchParams.get('next'));
-  if (!supabaseConfig()) return NextResponse.redirect(new URL('/?auth_error=configuration', origin));
+  if (!supabaseConfig()) return NextResponse.redirect(new URL('/profile?auth_error=configuration', origin));
   const supabase = await getSupabaseServer();
   const code = url.searchParams.get('code');
   const tokenHash = url.searchParams.get('token_hash');
@@ -25,6 +25,6 @@ export async function GET(request: NextRequest) {
     response.headers.set('Cache-Control', 'private, no-store');
     return response;
   } catch {
-    return NextResponse.redirect(new URL('/?auth_error=link', origin));
+    return NextResponse.redirect(new URL('/profile?auth_error=link', origin));
   }
 }

@@ -31,8 +31,8 @@ export default function ResetPassword() {
       if (error) { setError(authErrorMessage(error.code)); return; }
       setSaved(true);
       const { error: logoutError } = await client.auth.signOut({ scope: 'local' });
-      if (logoutError) { setError('Пароль изменён, но выйти из аккаунта не удалось. Вернитесь на главную страницу.'); return; }
-      window.location.assign('/?password_updated=1');
+      if (logoutError) { setError('Пароль изменён, но выйти из аккаунта не удалось. Вернитесь в профиль.'); return; }
+      window.location.assign('/profile?password_updated=1');
     } catch { setError('Не удалось выполнить действие. Проверьте соединение.'); }
     finally { setBusy(false); }
   }
@@ -43,6 +43,6 @@ export default function ResetPassword() {
         <label>Повторите пароль<input name="confirm" type="password" minLength={8} required autoComplete="new-password" /></label>
         <button type="submit">{busy ? 'Сохраняем…' : 'Сохранить пароль'}</button>
       </fieldset></form>}
-    {error && <p className="error" role="alert">{error}</p>}<p><a href="/">На главную</a></p>
+    {error && <p className="error" role="alert">{error}</p>}<p><a href="/profile">Вход и профиль</a></p>
   </main>;
 }

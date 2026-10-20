@@ -1,9 +1,9 @@
 {
   "name": "galaxy-hub",
-  "version": "1.1.4",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others --names web,world \"npm:dev:web\" \"npm:dev:world\"",
+    "dev": "npm run dev:web",
     "build": "next build",
     "start": "next start",
     "world": "tsx src/world/server.ts",
