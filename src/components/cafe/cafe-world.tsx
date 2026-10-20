@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { AvatarAnimation } from '../campus/avatar-animation';
 import { applyRetroAtmosphere } from '../campus/retro-atmosphere';
 import CampusMap from '../campus/campus-map';
 import { mountWorld } from '../campus/world-runtime';
@@ -21,7 +22,7 @@ import { PointerDirections } from '@/shared/cafe-controls';
 type Player = { name: string; color: number; x: number; y: number; moving: boolean; avatar: string; account: boolean; inputSeq: number };
 type Snapshot = { players: Map<string, Player> };
 type Member = { id: string; name: string; avatar: string; account: boolean };
-type Visual = { container: PhaserTypes.GameObjects.Container; sprite: PhaserTypes.GameObjects.Sprite; direction: 'front' | 'left' | 'right' | 'back'; shadow: PhaserTypes.GameObjects.Ellipse; label: PhaserTypes.GameObjects.Text; target: Player };
+type Visual = { container: PhaserTypes.GameObjects.Container; sprite: PhaserTypes.GameObjects.Sprite; animation: AvatarAnimation; shadow: PhaserTypes.GameObjects.Ellipse; label: PhaserTypes.GameObjects.Text; target: Player };
 const DIRECTIONS = [{ label: 'Вверх', x: 0, y: -1, glyph: '↑' }, { label: 'Влево', x: -1, y: 0, glyph: '←' }, { label: 'Вниз', x: 0, y: 1, glyph: '↓' }, { label: 'Вправо', x: 1, y: 0, glyph: '→' }];
 
 export default function CafeWorld({ name, color, useAccount = false, onLeave }: { name: string; color: number; useAccount?: boolean; onLeave: () => void }) {
@@ -218,9 +219,6 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             g.fillStyle(0x987459).fillRect(44, 104, 16, 12).fillRect(732, 480, 16, 12);
             g.fillStyle(0xeee1c6).fillRect(352, 512, 96, 32);
             this.add.text(400, 525, 'ВХОД', { fontFamily: 'monospace', fontSize: '12px', color: '#35271e' }).setOrigin(.5);
-            for (const direction of ['front', 'left', 'right', 'back']) {
-              if (!this.anims.exists(`avatar-walk-${direction}`)) this.anims.create({ key: `avatar-walk-${direction}`, frames: [0, 1, 2, 3].map(frame => ({ key: AVATAR_TEXTURE, frame: `${direction}-${frame}` })), frameRate: 8, repeat: -1 });
-            }
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D,E') as Record<string, PhaserTypes.Input.Keyboard.Key>;
             this.input.keyboard!.enabled = !typing.current;
             resetInput = () => {
@@ -248,7 +246,9 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
                 const sprite = this.add.sprite(0, 0, AVATAR_TEXTURE, 'front-0').setScale(AVATAR_SCALE).setOrigin(.5, AVATAR_ORIGIN_Y);
                 const label = this.add.text(0, -82, player.name + (id === joined.sessionId ? ' (вы)' : ''), { fontFamily: 'Arial', fontSize: '13px', color: '#ffffff', backgroundColor: '#493c31', padding: { x: 4, y: 2 } }).setOrigin(.5);
                 const container = this.add.container(player.x, player.y, [shadow, ring, sprite, label]).setDepth(AVATAR_DEPTH + player.y);
-                visual = { container, sprite, label, shadow, direction: 'front', target: player }; this.visuals.set(id, visual);
+                const seed = Array.from(id).reduce((hash, letter) => Math.imul(hash, 31) + letter.charCodeAt(0), 0);
+                const animation = new AvatarAnimation(this, container, sprite, seed);
+                visual = { container, sprite, label, shadow, animation, target: player }; this.visuals.set(id, visual);
                 if (id === joined.sessionId) this.cameras.main.startFollow(container, true, 1, 1);
               }
               // Schema fields are prototype accessors, so explicitly copy coordinates.
@@ -271,15 +271,6 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
               setArea(nearby ? channelName(nearby) : 'Общий зал');
             }
           }
-          private animateVisual(visual: Visual, x: number, y: number, moving: boolean) {
-            if (moving && (x || y)) visual.direction = Math.abs(x) > Math.abs(y) ? (x > 0 ? 'right' : 'left') : (y > 0 ? 'front' : 'back');
-            if (moving) {
-              const key = `avatar-walk-${visual.direction}`;
-              if (visual.sprite.anims.currentAnim?.key !== key || !visual.sprite.anims.isPlaying) visual.sprite.play(key);
-            } else {
-              visual.sprite.anims.stop(); visual.sprite.setFrame(`${visual.direction}-0`);
-            }
-          }
           private predictInput(input: { x: number; y: number }) {
             if (!this.prediction) return;
             const frame = this.prediction.step(input);
@@ -297,25 +288,23 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             this.visuals.forEach((visual, id) => {
               if (id === joined.sessionId) return;
               const blend = Math.min(1, delta / 70);
-              const dx = visual.target.x - visual.container.x, dy = visual.target.y - visual.container.y;
               visual.container.x += (visual.target.x - visual.container.x) * blend;
               visual.container.y += (visual.target.y - visual.container.y) * blend;
               visual.container.setDepth(AVATAR_DEPTH + visual.container.y);
-              this.animateVisual(visual, dx, dy, Math.hypot(dx, dy) > .2);
+              visual.animation.update(delta);
             });
             const me = this.visuals.get(joined.sessionId);
             const nearby = Boolean(me && Math.hypot(me.container.x - 400, me.container.y - 512) < 55);
             if (nearby !== this.exitNear) { this.exitNear = nearby; setNearExit(nearby); }
             if (!joined.connection.isOpen || document.hidden || !document.hasFocus() || typing.current) {
               this.elapsed = 0;
-              if (me) this.animateVisual(me, 0, 0, false);
+              if (me) me.animation.update(delta);
               return;
             }
             if (Phaser.Input.Keyboard.JustDown(this.keys.E) && nearby) { router.push('/campus/hall?from=cafe'); return; }
             let x = Number(this.keys.RIGHT.isDown || this.keys.D.isDown) - Number(this.keys.LEFT.isDown || this.keys.A.isDown);
             let y = Number(this.keys.DOWN.isDown || this.keys.S.isDown) - Number(this.keys.UP.isDown || this.keys.W.isDown);
             x = x || touch.current.x; y = y || touch.current.y;
-            const moving = Boolean(x || y);
             // Same fixed step on client and server, independent of render FPS.
             this.elapsed += Math.min(Math.max(delta, 0), 250);
             const before = this.unsent.length;
@@ -329,7 +318,7 @@ export default function CafeWorld({ name, color, useAccount = false, onLeave }: 
             }
             if (me) {
               me.container.setDepth(AVATAR_DEPTH + me.container.y);
-              this.animateVisual(me, x, y, moving);
+              me.animation.update(delta);
             }
           }
         }

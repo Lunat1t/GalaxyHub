@@ -8,6 +8,7 @@ import { CAMPUS_DOOR, CAMPUS_HEIGHT, CAMPUS_ROOMS, CAMPUS_WIDTH, nearCampusDoor,
 import { AVATAR_TEXTURE, AVATAR_IMAGE, AVATAR_ATLAS, AVATAR_SCALE, AVATAR_ORIGIN_Y, AVATAR_DEPTH } from '@/shared/avatar-sprite';
 import { PointerDirections } from '@/shared/cafe-controls';
 import { loadWorldRuntime, mountWorld } from './world-runtime';
+import { AvatarAnimation } from './avatar-animation';
 import { applyRetroAtmosphere } from './retro-atmosphere';
 import { preloadCafe } from '../cafe/load-cafe';
 
@@ -53,7 +54,7 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
           private keys?: Record<string, PhaserTypes.Input.Keyboard.Key>;
           private avatar!: PhaserTypes.GameObjects.Container;
           private character!: PhaserTypes.GameObjects.Sprite;
-          private direction = 'front';
+          private animation!: AvatarAnimation;
           private doorNear = false;
           constructor() { super('Campus'); }
           preload() {
@@ -97,13 +98,13 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
             this.add.text(CAMPUS_DOOR.x, 78, room === 'hall' ? 'Café' : 'Холл', { fontFamily: 'monospace', fontSize: '14px', color: '#e1dfc5', backgroundColor: '#3a4841', padding: { x: 5, y: 2 } }).setOrigin(.5);
             this.add.text(400, 250, currentRoom.name, { fontFamily: 'monospace', fontSize: '22px', color: '#414e45' }).setOrigin(.5);
             this.add.text(400, 278, room === 'hall' ? 'Место появления' : 'Пустой макет комнаты', { fontFamily: 'monospace', fontSize: '13px', color: '#4c594e' }).setOrigin(.5);
-            for (const direction of ['front', 'left', 'right', 'back']) if (!this.anims.exists(`campus-avatar-walk-${direction}`)) this.anims.create({ key: `campus-avatar-walk-${direction}`, frames: [0, 1, 2, 3].map(frame => ({ key: AVATAR_TEXTURE, frame: `${direction}-${frame}` })), frameRate: 8, repeat: -1 });
             const shadow = this.add.ellipse(0, 0, 26, 10, 0x353535, .25);
             const ring = this.add.ellipse(0, 0, 30, 12).setStrokeStyle(2, 0x284f80);
             this.character = this.add.sprite(0, 0, AVATAR_TEXTURE, 'front-0').setScale(AVATAR_SCALE).setOrigin(.5, AVATAR_ORIGIN_Y);
             const label = this.add.text(0, -82, `${name} (вы)`, { fontFamily: 'Arial', fontSize: '13px', color: '#ffffff', backgroundColor: '#555e61', padding: { x: 4, y: 2 } }).setOrigin(.5);
             this.avatar = this.add.container(fromCafe ? CAMPUS_DOOR.x : 400, fromCafe ? 136 : 420, [shadow, ring, this.character, label]);
             this.avatar.setDepth(AVATAR_DEPTH);
+            this.animation = new AvatarAnimation(this, this.avatar, this.character);
             this.cameras.main.startFollow(this.avatar, true, 1, 1);
             applyRetroAtmosphere(this);
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D,E') as Record<string, PhaserTypes.Input.Keyboard.Key>;
@@ -123,10 +124,7 @@ export default function CampusWorld({ room }: { room: PrototypeRoomId }) {
             const length = Math.max(1, Math.hypot(x, y)), distance = 150 * Math.min(delta, 50) / 1000;
             this.avatar.x = Phaser.Math.Clamp(this.avatar.x + x / length * distance, 44, 756);
             this.avatar.y = Phaser.Math.Clamp(this.avatar.y + y / length * distance, 92, 500);
-            if (x || y) {
-              this.direction = Math.abs(x) > Math.abs(y) ? (x > 0 ? 'right' : 'left') : (y > 0 ? 'front' : 'back');
-              this.character.play(`campus-avatar-walk-${this.direction}`, true);
-            } else { this.character.anims.stop(); this.character.setFrame(`${this.direction}-0`); }
+            this.animation.update(delta);
             const nearby = nearCampusDoor(this.avatar.x, this.avatar.y);
             if (nearby !== this.doorNear) { this.doorNear = nearby; setNearDoor(nearby); }
             if (Phaser.Input.Keyboard.JustDown(this.keys.E) && nearby && !paused.current) enterDoor();
