@@ -121,7 +121,7 @@ button:disabled { cursor: wait; opacity: .6; }
 .cafe-info ul { padding-left: 18px; overflow-wrap: anywhere; }
 .cafe-chat-tabs { flex-wrap: wrap; }
 
-.campus-screen { background: #3c4747; }
+.campus-screen { background: #352b26; }
 .campus-map { width: min(720px, calc(100% - 24px)); max-height: calc(100dvh - 32px); overflow: auto; overscroll-behavior: contain; padding: 20px; border: 1px solid #777; color: #222; background: #fafafa; }
 .campus-map::backdrop { background: #0009; }
 .campus-map header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
@@ -136,19 +136,3 @@ button:disabled { cursor: wait; opacity: .6; }
 @media (max-height: 420px) { .campus-door-action { bottom: 76px; } }
 .safety-actions select { min-width: 0; width: 100%; font: inherit; font-size: 16px; }
 @media (pointer: coarse) { .safety-actions button { min-height: 44px; } }
-
-/* Muted 2D survival-horror palette; HTML controls stay sharp above the canvas. */
-.cafe-screen { font-family: 'Courier New', monospace; background: #3c4744; }
-.cafe-screen button, .cafe-info, .cafe-hud > div {
-  background: #25342fed;
-  border-color: #8b9780;
-  color: #e1e0c9;
-  box-shadow: inset 1px 1px #aeb19b26, 2px 2px #111c1838;
-  border-radius: 1px;
-}
-.cafe-screen button:hover { background: #3b4d42; }
-.campus-map { color: #dddcc6; background: #283a33; border-color: #8b9780; font-family: 'Courier New', monospace; }
-.campus-map .campus-map-grid a { color: #e1e0c9; background: #36483d; border-color: #829079; }
-.campus-map-grid a[aria-current=location] { outline-color: #c5b78d; background: #4c5b47; }
-.campus-map button { background: #36483d; color: #e1e0c9; border-color: #829079; }
-.campus-door-action a { background: #283a33ed; color: #e1e0c9; border-color: #8b9780; }

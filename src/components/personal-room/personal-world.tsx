@@ -5,7 +5,6 @@ import type * as PhaserTypes from 'phaser';
 import { PointerDirections } from '@/shared/cafe-controls';
 import { WALK_SPEED } from '@/shared/cafe-map';
 import { loadWorldRuntime, mountWorld } from '../campus/world-runtime';
-import { applyRetroAtmosphere } from '../campus/retro-atmosphere';
 
 const ROOM_WIDTH = 800, ROOM_HEIGHT = 544;
 const CAT_TEXTURE = 'personal-black-cat';
@@ -50,7 +49,7 @@ export default function PersonalWorld() {
           }
           create() {
             if (disposed || !this.textures.exists(CAT_TEXTURE)) return;
-            this.cameras.main.setBackgroundColor('#3c4747');
+            this.cameras.main.setBackgroundColor('#352b26');
             const fit = () => {
               const { width, height } = this.scale;
               const zoom = Math.max(.85, Math.min(width / ROOM_WIDTH, height / ROOM_HEIGHT));
@@ -60,23 +59,17 @@ export default function PersonalWorld() {
             fit(); this.scale.on('resize', fit);
             this.events.once('shutdown', () => this.scale.off('resize', fit));
             const floor = this.add.graphics();
-            floor.fillStyle(0x858a7d).fillRect(32, 64, 736, 448);
+            floor.fillStyle(0x775d49).fillRect(24, 16, 752, 504);
             for (let y = 64; y < 512; y += 32) for (let x = 32; x < 768; x += 32) {
-              const right = Math.min(x + 32, 768);
-              floor.fillStyle((x / 32 + y / 32) % 3 ? 0x7c8277 : 0x929486, .7).fillTriangle(x, y, right, y, x, y + 32);
-              floor.fillStyle(0x687569, .22).fillTriangle(right, y, right, y + 32, x, y + 32);
-              floor.lineStyle(1, 0x535f56, .35).lineBetween(x, y + 31, right, y + 31);
-              if ((x * 3 + y) % 160 === 0) floor.lineStyle(1, 0x394b45, .28).lineBetween(x + 5, y + 8, right - 6, y + 17);
+              floor.fillStyle((x / 32 + y / 32) % 2 ? 0xd7be93 : 0xdcc59e).fillRect(x, y, 32, 32);
+              floor.lineStyle(1, 0xc7ac83).lineBetween(x, y + 31, x + 31, y + 31);
             }
-            floor.fillStyle(0x565f58).fillRect(32, 32, 736, 32);
-            floor.fillStyle(0x384a42).fillRect(32, 52, 736, 12);
-            floor.fillStyle(0x343f3c).fillRect(24, 32, 8, 480).fillRect(768, 32, 8, 480).fillRect(24, 512, 752, 8);
-            floor.lineStyle(2, 0x49564c, .4).strokeRect(48, 80, 704, 416);
+            floor.fillStyle(0xc4d0bf).fillRect(32, 16, 736, 48);
+            floor.fillStyle(0x715746).fillRect(24, 16, 8, 504).fillRect(768, 16, 8, 504).fillRect(24, 512, 752, 8);
             const shadow = this.add.ellipse(0, 0, 26, 10, 0x353535, .25);
             this.character = this.add.sprite(0, 0, CAT_TEXTURE, 'front-0').setScale(.18).setOrigin(.5, 316 / 336);
             this.avatar = this.add.container(400, 300, [shadow, this.character]).setDepth(20000);
             this.cameras.main.startFollow(this.avatar, true, 1, 1);
-            applyRetroAtmosphere(this);
             this.keys = this.input.keyboard!.addKeys('UP,DOWN,LEFT,RIGHT,W,A,S,D') as Record<string, PhaserTypes.Input.Keyboard.Key>;
             resetInput.current = () => { Object.values(this.keys ?? {}).forEach(key => key.reset()); pointers.current.clear(); };
             setStatus('Ваша личная комната');
