@@ -1,0 +1,37 @@
+{
+  "testedAt": "2026-10-10T12:15:58.910Z",
+  "authMode": "chatgpt",
+  "persistentIndex": true,
+  "model": "gpt-6-astra",
+  "indexed": {
+    "id": "concept",
+    "revision": "a6d007df1191f8785a6eea9cd7965d9b1c85092c423bd409d17d42e8fe9576e2",
+    "chunks": 2,
+    "unchanged": false
+  },
+  "query": "Как включается голосовой чат в Café?",
+  "answer": "По концепции Café, нужно сесть за столик — тогда появится возможность голосового чата, чтобы не мешать другим. Конкретные кнопки и дальнейшие действия в описании не указаны. [1]",
+  "citationIds": [
+    "[1]"
+  ],
+  "sources": [
+    {
+      "citation": "[1]",
+      "documentId": "concept",
+      "source": "Galaxy-Hub.md",
+      "title": "GalaxyHub — концепция",
+      "version": "2026-10-09",
+      "lineStart": 25,
+      "lineEnd": 44
+    }
+  ],
+  "diagnostics": {
+    "mode": "codex",
+    "strategy": "bm25",
+    "reranked": false,
+    "searchedChunks": 2,
+    "candidates": 2,
+    "contextChars": 2349,
+    "durationMs": 3
+  }
+}

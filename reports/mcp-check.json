@@ -1,0 +1,40 @@
+{
+  "testedAt": "2026-10-10T12:30:50.927Z",
+  "server": {
+    "name": "galaxyhub-knowledge",
+    "version": "0.1.0"
+  },
+  "tools": [
+    "list_rooms",
+    "list_documents",
+    "search_knowledge"
+  ],
+  "modelCalls": 0,
+  "roomIsolation": "passed",
+  "sources": [
+    {
+      "citation": "[1]",
+      "documentId": "concept",
+      "chunkId": "fd92baeec90876ea54d9c5675f5730a28c398dd5091a084efe0815eab2113a84",
+      "title": "GalaxyHub — концепция",
+      "source": "Galaxy-Hub.md",
+      "version": "2026-10-09",
+      "revision": "a6d007df1191f8785a6eea9cd7965d9b1c85092c423bd409d17d42e8fe9576e2",
+      "lineStart": 25,
+      "lineEnd": 44,
+      "score": 0.9813826201320028
+    },
+    {
+      "citation": "[2]",
+      "documentId": "concept",
+      "chunkId": "9d37666f381ba63edd8bdb2e9e9d9717d93e1efeb7bd901a4ddf2c0b39efe41a",
+      "title": "GalaxyHub — концепция",
+      "source": "Galaxy-Hub.md",
+      "version": "2026-10-09",
+      "revision": "a6d007df1191f8785a6eea9cd7965d9b1c85092c423bd409d17d42e8fe9576e2",
+      "lineStart": 1,
+      "lineEnd": 29,
+      "score": 0.17502629278919074
+    }
+  ]
+}

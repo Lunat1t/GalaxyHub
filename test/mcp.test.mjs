@@ -1,0 +1,38 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Retrieval } from '../src/retrieval.mjs';
+import { demoProvider } from '../src/providers.mjs';
+import { KnowledgeReader } from '../src/knowledge-reader.mjs';
+import { mcpHandler } from '../src/mcp.mjs';
+
+const principal = { tenant: 'hub', rooms: ['cafe'], role: 'writer' };
+test('MCP discovery, read-only search, exact sources and tenant isolation', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'galaxy-mcp-test-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, 'index.sqlite');
+  const index = new Retrieval({ path, provider: demoProvider() });
+  await index.index(principal, { room: 'cafe', id: 'voice', title: 'Café', source: 'cafe.md', text: 'Голосовой чат включается за столиком.' });
+  await index.index({ ...principal, tenant: 'other' }, { room: 'cafe', id: 'secret', title: 'Private', source: 'secret.md', text: 'Секретный голосовой чат.' });
+  index.close();
+  const reader = new KnowledgeReader({ path, principal }); t.after(() => reader.close());
+  const handle = mcpHandler(reader);
+  let id = 0;
+  const call = (method, params) => handle({ jsonrpc: '2.0', id: ++id, method, params });
+  assert.equal((await call('tools/list')).error.code, -32000);
+  assert.equal((await call('initialize', { protocolVersion: '2025-06-18' })).result.protocolVersion, '2025-06-18');
+  assert.equal(await handle({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
+  const tools = (await call('tools/list')).result.tools;
+  assert.equal(tools.length, 3); assert.ok(tools.every(tool => tool.annotations.readOnlyHint));
+  const result = (await call('tools/call', { name: 'search_knowledge', arguments: { room: 'cafe', query: 'голосовой чат' } })).result;
+  assert.equal(result.structuredContent.passages.length, 1);
+  assert.equal(result.structuredContent.passages[0].source, 'cafe.md');
+  assert.equal(result.structuredContent.passages[0].text, 'Голосовой чат включается за столиком.');
+  assert.equal((await call('tools/call', { name: 'search_knowledge', arguments: { room: 'private', query: 'чат' } })).result.isError, true);
+  assert.equal((await call('tools/call', { name: 'search_knowledge', arguments: { room: 'cafe', query: 'чат', tenant: 'other' } })).error.code, -32602);
+  assert.equal((await call('tools/call', { name: 'index_document', arguments: {} })).error.code, -32602);
+  assert.throws(() => reader.db.exec('DELETE FROM documents'), /readonly/);
+  assert.equal((await call('tools/call', { name: 'search_knowledge', arguments: { room: 'cafe', query: 'несуществующее' } })).result.structuredContent.passages.length, 0);
+});

@@ -1,0 +1,21 @@
+{
+  "name": "galaxy-contextual-retrieval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.mjs",
+    "ask": "node --env-file-if-exists=.env scripts/ask.mjs",
+    "search": "node --env-file=.env scripts/search.mjs",
+    "mcp": "node --env-file=.env src/mcp.mjs",
+    "mcp:check": "node scripts/mcp-check.mjs",
+    "mcp:codex-check": "node scripts/codex-mcp-check.mjs",
+    "demo": "node scripts/demo.mjs",
+    "test": "node --test test/*.test.mjs",
+    "codex:check": "node --env-file-if-exists=.env scripts/codex-check.mjs",
+    "codex:setup": "node scripts/codex-setup.mjs",
+    "codex:seed": "node --env-file-if-exists=.env scripts/codex-check.mjs --persist",
+    "evaluate": "node scripts/evaluate.mjs"
+  }
+}
