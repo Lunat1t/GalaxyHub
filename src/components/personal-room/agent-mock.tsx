@@ -59,6 +59,14 @@ export default function AgentMock() {
     if (notice === id) setNotice(null);
   }
 
+  async function pasteLink() {
+    try {
+      const value = await navigator.clipboard.readText();
+      setUrl(value.trim()); setFile(null); setError('');
+      if (fileInput.current) fileInput.current.value = '';
+    } catch { setError('Буфер обмена недоступен. Вставьте ссылку в поле вручную.'); }
+  }
+
   const active = materials.find(item => item.id === selected);
   return <div className="agent-mock" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') setOpen(false); }}>
     {notice && !open && <button className="agent-mock-notice" onClick={() => { setOpen(true); setTab('materials'); setSelected(notice); setNotice(null); }}>
@@ -73,6 +81,7 @@ export default function AgentMock() {
       <nav aria-label="Разделы агента"><button aria-current={tab === 'new' ? 'page' : undefined} onClick={() => setTab('new')}>Новая задача</button><button aria-current={tab === 'materials' ? 'page' : undefined} onClick={() => setTab('materials')}>Материалы ({materials.length})</button></nav>
       {tab === 'new' ? <form onSubmit={addMaterial} className="agent-mock-form">
         <label>Ссылка на YouTube<input type="url" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://youtu.be/…" /></label>
+        <button type="button" onClick={() => void pasteLink()}>Вставить из буфера</button>
         <span>или</span>
         <label>PDF-файл<input ref={fileInput} type="file" accept="application/pdf,.pdf" onChange={event => setFile(event.target.files?.[0] || null)} /></label>
         <label>Задача агенту<textarea value={task} onChange={event => setTask(event.target.value)} rows={3} placeholder="Например: выдели главные идеи и подготовь вопросы" /></label>
