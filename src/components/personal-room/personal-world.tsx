@@ -5,6 +5,7 @@ import type * as PhaserTypes from 'phaser';
 import { PointerDirections } from '@/shared/cafe-controls';
 import { WALK_SPEED } from '@/shared/cafe-map';
 import { loadWorldRuntime, mountWorld } from '../campus/world-runtime';
+import AgentMock from './agent-mock';
 
 const ROOM_WIDTH = 800, ROOM_HEIGHT = 544;
 const CAT_TEXTURE = 'personal-black-cat';
@@ -77,7 +78,7 @@ export default function PersonalWorld() {
           update(_time: number, delta: number) {
             if (!this.keys || disposed) return;
             let x = 0, y = 0;
-            if (!document.hidden && document.hasFocus()) {
+            if (!document.hidden && document.hasFocus() && !document.activeElement?.closest('.agent-mock')) {
               const touch = pointers.current.value();
               x = (Number(this.keys.RIGHT.isDown || this.keys.D.isDown) - Number(this.keys.LEFT.isDown || this.keys.A.isDown)) || touch.x;
               y = (Number(this.keys.DOWN.isDown || this.keys.S.isDown) - Number(this.keys.UP.isDown || this.keys.W.isDown)) || touch.y;
@@ -123,5 +124,6 @@ export default function PersonalWorld() {
       onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); pointers.current.press(event.pointerId, direction); }}
       onPointerUp={event => pointers.current.release(event.pointerId)} onPointerCancel={event => pointers.current.release(event.pointerId)} onLostPointerCapture={event => pointers.current.release(event.pointerId)}
       onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pointers.current.press(-1, direction); } }} onKeyUp={() => pointers.current.release(-1)} onBlur={() => pointers.current.release(-1)}>{direction.glyph}</button>)}</div>
+    <AgentMock />
   </div>;
 }
